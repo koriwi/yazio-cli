@@ -168,9 +168,28 @@ func (c *Client) GetRecipe(recipeID string) (*models.ProductResponse, error) {
 	return &resp, nil
 }
 
-// SearchProducts searches for products by query string.
-func (c *Client) SearchProducts(query string) ([]models.ProductResponse, error) {
-	path := fmt.Sprintf("%s?search_term=%s&language=en", apiProducts, url.QueryEscape(query))
+// GetProfile fetches the authenticated user's profile.
+func (c *Client) GetProfile() (*models.UserProfile, error) {
+	data, err := c.request("GET", "/v9/user", nil)
+	if err != nil {
+		return nil, err
+	}
+	var p models.UserProfile
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// SearchProducts searches for products. country should be the user's country code (e.g. "DE"),
+// sex should be "male" or "female" — both are required by the YAZIO API.
+func (c *Client) SearchProducts(query, country, sex string) ([]models.ProductResponse, error) {
+	path := fmt.Sprintf("%s/search?query=%s&language=en&countries=%s&sex=%s",
+		apiProducts,
+		url.QueryEscape(query),
+		url.QueryEscape(country),
+		url.QueryEscape(sex),
+	)
 	data, err := c.request("GET", path, nil)
 	if err != nil {
 		return nil, err

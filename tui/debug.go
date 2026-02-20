@@ -26,6 +26,8 @@ type userProfile struct {
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
 	Email     string `json:"email"`
+	Country   string `json:"country"`
+	Sex       string `json:"sex"`
 }
 
 type debugModel struct {
@@ -63,6 +65,16 @@ func (m debugModel) load() tea.Cmd {
 	client := m.client
 	return func() tea.Msg {
 		today := time.Now().Format(time.DateOnly)
+
+		// Fetch profile first so we can use country/sex in search probe
+		var profile *userProfile
+		if raw, _, err2 := client.GetRaw("/v9/user"); err2 == nil {
+			var p userProfile
+			if json.Unmarshal([]byte(raw), &p) == nil {
+				profile = &p
+			}
+		}
+
 		// Fetch first product from today to probe product nutrient field names
 		productProbe := ""
 		if raw, _, err2 := client.GetRaw(fmt.Sprintf("/v9/user/consumed-items?date=%s", today)); err2 == nil {
@@ -76,6 +88,16 @@ func (m debugModel) load() tea.Cmd {
 			}
 		}
 
+		country, sex := "DE", "male"
+		if profile != nil {
+			if profile.Country != "" {
+				country = profile.Country
+			}
+			if profile.Sex != "" {
+				sex = profile.Sex
+			}
+		}
+
 		paths := []string{
 			"/v9/user",
 			fmt.Sprintf("/v9/user/consumed-items?date=%s", today),
@@ -85,9 +107,11 @@ func (m debugModel) load() tea.Cmd {
 		if productProbe != "" {
 			paths = append(paths, productProbe)
 		}
+		paths = append(paths, fmt.Sprintf(
+			"/v9/products/search?query=chicken&language=en&countries=%s&sex=%s", country, sex,
+		))
 
 		var results []debugEndpoint
-		var profile *userProfile
 
 		for _, path := range paths {
 			body, status, err := client.GetRaw(path)
@@ -96,12 +120,6 @@ func (m debugModel) load() tea.Cmd {
 				e.err = err.Error()
 			} else {
 				e.body = prettyJSON(body)
-				if path == "/v9/user" && status == 200 {
-					var p userProfile
-					if json.Unmarshal([]byte(body), &p) == nil {
-						profile = &p
-					}
-				}
 			}
 			results = append(results, e)
 		}

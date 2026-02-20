@@ -2,10 +2,10 @@ package tui
 
 import (
 	"sync"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/koriwi/yazio-cli/internal/api"
+	"github.com/koriwi/yazio-cli/internal/models"
 )
 
 type page int
@@ -17,6 +17,8 @@ const (
 	pageDebug   page = 3
 )
 
+type profileLoadedMsg struct{ profile *models.UserProfile }
+
 type App struct {
 	page    page
 	login   loginModel
@@ -25,9 +27,17 @@ type App struct {
 	debug   debugModel
 	client  *api.Client
 	token   string
+	profile *models.UserProfile
 	cache   *sync.Map
 	width   int
 	height  int
+}
+
+func fetchProfile(client *api.Client) tea.Cmd {
+	return func() tea.Msg {
+		p, _ := client.GetProfile()
+		return profileLoadedMsg{profile: p}
+	}
 }
 
 func New(loggedIn bool, token string) *App {
@@ -57,7 +67,7 @@ func New(loggedIn bool, token string) *App {
 func (a *App) Init() tea.Cmd {
 	if a.page == pageDiary {
 		a.diary.loading = true
-		return a.diary.loadDiary()
+		return tea.Batch(a.diary.loadDiary(), fetchProfile(a.client))
 	}
 	return nil
 }
@@ -93,13 +103,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Page-specific add key
 		if a.page == pageDiary && msg.String() == "a" {
-			a.addMeal = newAddMealModel(a.client, a.cache, a.diary.date)
+			a.addMeal = newAddMealModel(a.client, a.cache, a.diary.date, a.profile)
 			a.addMeal.width, a.addMeal.height = a.width, a.height
 			a.addMeal.loading = true
 			a.page = pageAddMeal
 			cmds = append(cmds, a.addMeal.loadRecent())
 			return a, tea.Batch(cmds...)
 		}
+
+	case profileLoadedMsg:
+		a.profile = msg.profile
 
 	// Login flow
 	case loginSuccessMsg:
@@ -109,7 +122,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.diary.width, a.diary.height = a.width, a.height
 		a.diary.loading = true
 		a.page = pageDiary
-		return a, a.diary.loadDiary()
+		return a, tea.Batch(a.diary.loadDiary(), fetchProfile(a.client))
 
 	// Add meal transitions
 	case backToDiaryMsg:
@@ -164,5 +177,3 @@ func (a *App) View() string {
 	return ""
 }
 
-// Ensure time package is used (for future extensions)
-var _ = time.Now

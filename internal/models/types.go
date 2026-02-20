@@ -113,6 +113,17 @@ type ProductSearchResponse struct {
 	Products []ProductResponse `json:"products"`
 }
 
+// UserProfile is the response from GET /v9/user
+type UserProfile struct {
+	UUID      string `json:"uuid"`
+	Email     string `json:"email"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	Country   string `json:"country"`
+	Sex       string `json:"sex"`
+	Language  string `json:"language"`
+}
+
 // AddConsumedRequest is the body for POST /v9/user/consumed-items
 type AddConsumedRequest struct {
 	ProductID       string  `json:"product_id"`

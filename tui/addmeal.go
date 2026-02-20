@@ -30,20 +30,21 @@ const (
 )
 
 type addMealModel struct {
-	tab      addMealTab
-	step     addMealStep
-	client   *api.Client
-	cache    *sync.Map
-	date     time.Time
-	width    int
-	height   int
+	tab     addMealTab
+	step    addMealStep
+	client  *api.Client
+	cache   *sync.Map
+	date    time.Time
+	profile *models.UserProfile // for search params (country, sex)
+	width   int
+	height  int
 
 	// Browse state
-	recent   []models.ProductResponse
-	results  []models.ProductResponse
-	listIdx  int
-	loading  bool
-	err      string
+	recent  []models.ProductResponse
+	results []models.ProductResponse
+	listIdx int
+	loading bool
+	err     string
 
 	// Search state
 	searchInput textinput.Model
@@ -67,7 +68,7 @@ type searchResultsMsg struct {
 type addSuccessMsg struct{}
 type addErrMsg struct{ err string }
 
-func newAddMealModel(client *api.Client, cache *sync.Map, date time.Time) addMealModel {
+func newAddMealModel(client *api.Client, cache *sync.Map, date time.Time, profile *models.UserProfile) addMealModel {
 	search := textinput.New()
 	search.Placeholder = "Search foods..."
 	search.CharLimit = 128
@@ -83,6 +84,7 @@ func newAddMealModel(client *api.Client, cache *sync.Map, date time.Time) addMea
 		client:      client,
 		cache:       cache,
 		date:        date,
+		profile:     profile,
 		searchInput: search,
 		amountInput: amount,
 		mealTimeIdx: 0,
@@ -125,9 +127,18 @@ func (m addMealModel) loadRecent() tea.Cmd {
 
 func (m addMealModel) doSearch(query string) tea.Cmd {
 	client := m.client
+	country, sex := "DE", "male"
+	if m.profile != nil {
+		if m.profile.Country != "" {
+			country = m.profile.Country
+		}
+		if m.profile.Sex != "" {
+			sex = m.profile.Sex
+		}
+	}
 
 	return func() tea.Msg {
-		products, err := client.SearchProducts(query)
+		products, err := client.SearchProducts(query, country, sex)
 		if err != nil {
 			return searchResultsMsg{err: err.Error()}
 		}
