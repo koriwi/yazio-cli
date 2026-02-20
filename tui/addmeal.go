@@ -16,8 +16,8 @@ import (
 type addMealTab int
 
 const (
-	tabRecent   addMealTab = 0
-	tabSearch   addMealTab = 1
+	tabRecent addMealTab = 0
+	tabSearch addMealTab = 1
 )
 
 type addMealStep int
@@ -50,9 +50,11 @@ type addMealModel struct {
 	searchInput textinput.Model
 
 	// Selected product + entry details
-	selected    *models.ProductResponse
-	amountInput textinput.Model
-	mealTimeIdx int // index into models.MealTimes
+	selected       *models.ProductResponse
+	amountInput    textinput.Model
+	servingIdx     int  // index into productServings(selected)
+	servingFocused bool // true when serving selector has focus
+	mealTimeIdx    int  // index into models.MealTimes
 }
 
 type recentLoadedMsg struct {
@@ -89,6 +91,28 @@ func newAddMealModel(client *api.Client, cache *sync.Map, date time.Time, profil
 		amountInput: amount,
 		mealTimeIdx: 0,
 	}
+}
+
+// productServings returns all available servings, always starting with gram.
+func productServings(p *models.ProductResponse) []models.Serving {
+	servings := []models.Serving{{Amount: 1, Serving: "gram"}}
+	if p != nil {
+		servings = append(servings, p.Servings...)
+	}
+	return servings
+}
+
+// servingDisplayName returns a short user-facing label for a serving.
+func servingDisplayName(s models.Serving) string {
+	if s.Serving == "gram" {
+		return "g"
+	}
+	return s.Serving
+}
+
+// amountGramsForServing converts user-entered quantity to total grams.
+func amountGramsForServing(qty float64, s models.Serving) float64 {
+	return qty * s.Amount // gram.Amount == 1, so gram-based is a no-op
 }
 
 func (m addMealModel) loadRecent() tea.Cmd {
@@ -148,15 +172,16 @@ func (m addMealModel) doSearch(query string) tea.Cmd {
 
 func (m addMealModel) doAddMeal() tea.Cmd {
 	product := m.selected
-	amount, _ := strconv.ParseFloat(m.amountInput.Value(), 64)
-	if amount <= 0 {
-		amount = 100
+	qty, _ := strconv.ParseFloat(m.amountInput.Value(), 64)
+	if qty <= 0 {
+		qty = 1
 	}
+
+	servings := productServings(product)
+	s := servings[m.servingIdx]
+	amountGrams := amountGramsForServing(qty, s)
+
 	mealTime := models.MealTimes[m.mealTimeIdx]
-	serving := "gram"
-	if len(product.Servings) > 0 {
-		serving = product.Servings[0].Serving
-	}
 	client := m.client
 	date := m.date
 
@@ -165,9 +190,9 @@ func (m addMealModel) doAddMeal() tea.Cmd {
 			ProductID:       product.ID,
 			Date:            date.Format(time.DateOnly),
 			Daytime:         mealTime,
-			Amount:          amount,
-			Serving:         serving,
-			ServingQuantity: 1,
+			Amount:          amountGrams,
+			Serving:         s.Serving,
+			ServingQuantity: qty,
 		})
 		if err != nil {
 			return addErrMsg{err: err.Error()}
@@ -228,7 +253,6 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 			case "j", "down":
 				list := m.currentList()
 				if m.tab == tabSearch && m.searchInput.Focused() {
-					// Navigate to list
 					if len(list) > 0 {
 						m.searchInput.Blur()
 					}
@@ -245,7 +269,6 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 
 			case "enter":
 				if m.tab == tabSearch && m.searchInput.Focused() {
-					// Perform search
 					q := m.searchInput.Value()
 					if q != "" {
 						m.loading = true
@@ -259,33 +282,80 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 					p := list[m.listIdx]
 					m.selected = &p
 					m.step = stepAmount
-					m.amountInput.SetValue("100")
-					m.amountInput.Focus()
+					m.servingIdx = 0
 					m.err = ""
+					servings := productServings(&p)
+					if len(servings) > 1 {
+						// Let user pick serving unit first
+						m.servingFocused = true
+						m.amountInput.Blur()
+						m.amountInput.SetValue("1")
+					} else {
+						m.servingFocused = false
+						m.amountInput.SetValue("100")
+						m.amountInput.Focus()
+					}
 				}
 			}
 
 		case stepAmount:
-			switch msg.String() {
-			case "esc":
-				m.step = stepBrowse
-				m.selected = nil
-				m.amountInput.Blur()
-			case "enter":
-				_, err := strconv.ParseFloat(m.amountInput.Value(), 64)
-				if err != nil || m.amountInput.Value() == "" {
-					m.err = "Enter a valid number"
-					break
+			servings := productServings(m.selected)
+			if m.servingFocused {
+				switch msg.String() {
+				case "esc":
+					m.step = stepBrowse
+					m.selected = nil
+					m.amountInput.Blur()
+				case "left", "h":
+					if m.servingIdx > 0 {
+						m.servingIdx--
+					}
+				case "right", "l":
+					if m.servingIdx < len(servings)-1 {
+						m.servingIdx++
+					}
+				case "tab", "down", "enter":
+					m.servingFocused = false
+					m.amountInput.Focus()
+					if m.servingIdx == 0 {
+						m.amountInput.SetValue("100")
+					} else {
+						m.amountInput.SetValue("1")
+					}
 				}
-				m.err = ""
-				m.step = stepMealTime
-				m.amountInput.Blur()
+			} else {
+				switch msg.String() {
+				case "esc":
+					if len(servings) > 1 {
+						m.servingFocused = true
+						m.amountInput.Blur()
+					} else {
+						m.step = stepBrowse
+						m.selected = nil
+						m.amountInput.Blur()
+					}
+				case "tab", "shift+tab":
+					if len(servings) > 1 {
+						m.servingFocused = true
+						m.amountInput.Blur()
+					}
+				case "enter":
+					_, err := strconv.ParseFloat(m.amountInput.Value(), 64)
+					if err != nil || m.amountInput.Value() == "" {
+						m.err = "Enter a valid number"
+						break
+					}
+					m.err = ""
+					m.step = stepMealTime
+					m.amountInput.Blur()
+				}
 			}
 
 		case stepMealTime:
 			switch msg.String() {
 			case "esc":
 				m.step = stepAmount
+				m.servingFocused = false
 				m.amountInput.Focus()
 			case "left", "h":
 				if m.mealTimeIdx > 0 {
@@ -331,7 +401,6 @@ func (m addMealModel) View() string {
 
 	switch m.step {
 	case stepBrowse:
-		// Tab bar
 		tabs := []string{"Recent", "Search"}
 		for i, t := range tabs {
 			if addMealTab(i) == m.tab {
@@ -391,34 +460,73 @@ func (m addMealModel) View() string {
 		if m.selected != nil {
 			sb.WriteString(fmt.Sprintf("  %s\n\n", styleItemName.Render(m.selected.Name)))
 		}
-		sb.WriteString("  Amount:\n")
-		sb.WriteString(styleInput.Width(m.amountInput.Width).Render(m.amountInput.View()))
 
-		serving := "g"
-		if m.selected != nil && len(m.selected.Servings) > 0 {
-			serving = m.selected.Servings[0].Serving
+		servings := productServings(m.selected)
+		if len(servings) > 1 {
+			sb.WriteString("  Serving:\n  ")
+			for i, s := range servings {
+				label := servingDisplayName(s)
+				if i == m.servingIdx {
+					if m.servingFocused {
+						sb.WriteString(styleSelected.Render(" " + label + " "))
+					} else {
+						sb.WriteString(styleItemName.Render("[" + label + "]"))
+					}
+				} else {
+					sb.WriteString(styleDimmed.Render(" " + label + " "))
+				}
+				if i < len(servings)-1 {
+					sb.WriteString("  ")
+				}
+			}
+			sb.WriteString("\n\n")
 		}
-		sb.WriteString("  " + styleDimmed.Render(serving) + "\n\n")
+
+		if !m.servingFocused {
+			currentS := servings[m.servingIdx]
+			unit := servingDisplayName(currentS)
+			sb.WriteString(fmt.Sprintf("  Amount (%s):\n", unit))
+			sb.WriteString(styleInput.Width(m.amountInput.Width).Render(m.amountInput.View()))
+
+			qty, _ := strconv.ParseFloat(m.amountInput.Value(), 64)
+			if qty > 0 && m.selected != nil {
+				amountG := amountGramsForServing(qty, currentS)
+				kcal := m.selected.Nutrients.EnergyKcal * amountG
+				sb.WriteString("  " + styleDimmed.Render(fmt.Sprintf("= %.0fg · %.0f kcal", amountG, kcal)) + "\n\n")
+			} else {
+				sb.WriteString("\n\n")
+			}
+		}
 
 		if m.err != "" {
 			sb.WriteString(styleError.Render("  "+m.err) + "\n\n")
 		}
-		sb.WriteString(styleHelp.Render("[Enter] next  [Esc] back"))
+
+		if m.servingFocused {
+			sb.WriteString(styleHelp.Render("[←/→] select serving  [Enter] set amount  [Esc] back"))
+		} else if len(servings) > 1 {
+			sb.WriteString(styleHelp.Render("[Tab] change serving  [Enter] next  [Esc] serving"))
+		} else {
+			sb.WriteString(styleHelp.Render("[Enter] next  [Esc] back"))
+		}
 
 	case stepMealTime:
 		if m.selected != nil {
-			amount, _ := strconv.ParseFloat(m.amountInput.Value(), 64)
-			kcal := m.selected.Nutrients.EnergyKcal * amount
+			servings := productServings(m.selected)
+			s := servings[m.servingIdx]
+			qty, _ := strconv.ParseFloat(m.amountInput.Value(), 64)
+			amountG := amountGramsForServing(qty, s)
+			kcal := m.selected.Nutrients.EnergyKcal * amountG
 			sb.WriteString(fmt.Sprintf("  %s  —  %.0fg  —  %.0f kcal\n\n",
-				styleItemName.Render(m.selected.Name), amount, kcal))
+				styleItemName.Render(m.selected.Name), amountG, kcal))
 		}
 		sb.WriteString("  Meal:\n  ")
 		for i, mt := range models.MealTimes {
 			label := models.MealTimeLabel(mt)
 			if i == m.mealTimeIdx {
-				sb.WriteString(styleSelected.Render(" "+label+" "))
+				sb.WriteString(styleSelected.Render(" " + label + " "))
 			} else {
-				sb.WriteString(styleDimmed.Render(" "+label+" "))
+				sb.WriteString(styleDimmed.Render(" " + label + " "))
 			}
 			if i < len(models.MealTimes)-1 {
 				sb.WriteString("  ")
