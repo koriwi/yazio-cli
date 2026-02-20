@@ -343,7 +343,7 @@ func (m addMealModel) View() string {
 		sb.WriteString("\n\n")
 
 		if m.tab == tabSearch {
-			sb.WriteString("  " + styleInput.Render(m.searchInput.View()) + "\n\n")
+			sb.WriteString(styleInput.Width(m.searchInput.Width).Render(m.searchInput.View()) + "\n\n")
 		}
 
 		if m.loading {
@@ -392,7 +392,7 @@ func (m addMealModel) View() string {
 			sb.WriteString(fmt.Sprintf("  %s\n\n", styleItemName.Render(m.selected.Name)))
 		}
 		sb.WriteString("  Amount:\n")
-		sb.WriteString("  " + styleInput.Render(m.amountInput.View()))
+		sb.WriteString(styleInput.Width(m.amountInput.Width).Render(m.amountInput.View()))
 
 		serving := "g"
 		if m.selected != nil && len(m.selected.Servings) > 0 {

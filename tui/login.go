@@ -131,10 +131,10 @@ func (m loginModel) View() string {
 
 	form := lipgloss.JoinVertical(lipgloss.Left,
 		emailLabel,
-		styleInput.Render(m.email.View()),
+		styleInput.Width(m.email.Width).Render(m.email.View()),
 		"",
 		passLabel,
-		styleInput.Render(m.password.View()),
+		styleInput.Width(m.password.Width).Render(m.password.View()),
 	)
 
 	var status string
