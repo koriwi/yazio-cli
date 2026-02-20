@@ -1,5 +1,7 @@
 package models
 
+import "encoding/json"
+
 // ConsumedItemsResponse is the response from GET /v9/user/consumed-items?date=...
 type ConsumedItemsResponse struct {
 	Products       []ConsumedProduct `json:"products"`
@@ -27,45 +29,62 @@ type ConsumedRecipe struct {
 }
 
 // ProductResponse is the response from GET /v9/products/{id}
+// Nutrients use dotted keys ("energy.energy", "nutrient.carb", …) and are per gram.
 type ProductResponse struct {
-	ID        string           `json:"id"`
-	Name      string           `json:"name"`
-	Nutrients ProductNutrients `json:"nutrients"`
-	Servings  []Serving        `json:"servings"`
+	ID       string
+	Name     string
+	Nutrients ProductNutrients
+	Servings  []Serving
+	BaseUnit  string
 }
 
+func (p *ProductResponse) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Name      string             `json:"name"`
+		Nutrients map[string]float64 `json:"nutrients"`
+		Servings  []struct {
+			Amount  float64 `json:"amount"`
+			Serving string  `json:"serving"`
+		} `json:"servings"`
+		BaseUnit string `json:"base_unit"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	p.Name = raw.Name
+	p.BaseUnit = raw.BaseUnit
+	p.Nutrients = ProductNutrients{
+		EnergyKcal: raw.Nutrients["energy.energy"],
+		Carb:       raw.Nutrients["nutrient.carb"],
+		Protein:    raw.Nutrients["nutrient.protein"],
+		Fat:        raw.Nutrients["nutrient.fat"],
+		Sugar:      raw.Nutrients["nutrient.sugar"],
+		Saturated:  raw.Nutrients["nutrient.saturated"],
+		Salt:       raw.Nutrients["nutrient.salt"],
+	}
+	for _, s := range raw.Servings {
+		p.Servings = append(p.Servings, Serving{
+			Amount:  s.Amount,
+			Serving: s.Serving,
+		})
+	}
+	return nil
+}
+
+// ProductNutrients holds per-gram nutrient values.
 type ProductNutrients struct {
-	// Field names confirmed from debug probe needed — keeping both variants
-	EnergyKcal    float64 `json:"energy_kcal"`
-	Energy        float64 `json:"energy"`
-	Carbohydrates float64 `json:"carbohydrates"`
-	Carb          float64 `json:"carb"`
-	Protein       float64 `json:"protein"`
-	Fat           float64 `json:"fat"`
-	Fiber         float64 `json:"fiber"`
-	Sugar         float64 `json:"sugar"`
-}
-
-// EnergyKcalVal returns whichever energy field is populated.
-func (n ProductNutrients) EnergyKcalVal() float64 {
-	if n.EnergyKcal != 0 {
-		return n.EnergyKcal
-	}
-	return n.Energy
-}
-
-// CarbVal returns whichever carb field is populated.
-func (n ProductNutrients) CarbVal() float64 {
-	if n.Carbohydrates != 0 {
-		return n.Carbohydrates
-	}
-	return n.Carb
+	EnergyKcal float64 // kcal per gram
+	Carb       float64 // g per gram
+	Protein    float64 // g per gram
+	Fat        float64 // g per gram
+	Sugar      float64
+	Saturated  float64
+	Salt       float64
 }
 
 type Serving struct {
-	ID   string  `json:"id"`
-	Size float64 `json:"size"`
-	Unit string  `json:"unit"`
+	Amount  float64 // grams per serving
+	Serving string  // serving name ("cookie", "package", …)
 }
 
 // DailyNutrient is one entry from GET /v9/user/consumed-items/nutrients-daily?start=...&end=...
@@ -106,16 +125,17 @@ type AddConsumedRequest struct {
 
 // DiaryEntry is a resolved consumed item with product name and nutrients
 type DiaryEntry struct {
-	ConsumedID string
-	ProductID  string
-	Name       string
-	MealTime   string // populated from Daytime
-	Amount     float64
-	Serving    string
-	Kcal       float64
-	Protein    float64
-	Carbs      float64
-	Fat        float64
+	ConsumedID      string
+	ProductID       string
+	Name            string
+	MealTime        string // populated from Daytime
+	Amount          float64
+	Serving         string
+	ServingQuantity float64
+	Kcal            float64
+	Protein         float64
+	Carbs           float64
+	Fat             float64
 }
 
 func MealTimeLabel(mealTime string) string {

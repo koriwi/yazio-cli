@@ -144,7 +144,7 @@ func (m addMealModel) doAddMeal() tea.Cmd {
 	mealTime := models.MealTimes[m.mealTimeIdx]
 	serving := "gram"
 	if len(product.Servings) > 0 {
-		serving = product.Servings[0].ID
+		serving = product.Servings[0].Serving
 	}
 	client := m.client
 	date := m.date
@@ -362,7 +362,7 @@ func (m addMealModel) View() string {
 				}
 				for i := start; i < end; i++ {
 					p := list[i]
-					kcalPer100 := fmt.Sprintf("%.0f kcal/100g", p.Nutrients.EnergyKcal)
+					kcalPer100 := fmt.Sprintf("%.0f kcal/100g", p.Nutrients.EnergyKcal*100)
 					name := truncate(p.Name, m.width-20)
 					line := fmt.Sprintf("  %s  %s", padRight(name, m.width/2), styleDimmed.Render(kcalPer100))
 					if i == m.listIdx && !m.searchInput.Focused() {
@@ -385,7 +385,7 @@ func (m addMealModel) View() string {
 
 		serving := "g"
 		if m.selected != nil && len(m.selected.Servings) > 0 {
-			serving = m.selected.Servings[0].Unit
+			serving = m.selected.Servings[0].Serving
 		}
 		sb.WriteString("  " + styleDimmed.Render(serving) + "\n\n")
 
@@ -397,7 +397,7 @@ func (m addMealModel) View() string {
 	case stepMealTime:
 		if m.selected != nil {
 			amount, _ := strconv.ParseFloat(m.amountInput.Value(), 64)
-			kcal := m.selected.Nutrients.EnergyKcal * amount / 100
+			kcal := m.selected.Nutrients.EnergyKcal * amount
 			sb.WriteString(fmt.Sprintf("  %s  —  %.0fg  —  %.0f kcal\n\n",
 				styleItemName.Render(m.selected.Name), amount, kcal))
 		}

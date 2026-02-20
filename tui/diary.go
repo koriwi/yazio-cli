@@ -134,7 +134,7 @@ func resolveEntries(consumed *models.ConsumedItemsResponse, client *api.Client, 
 		go func() {
 			defer wg.Done()
 			product := fetchProductCached(cp.ProductID, client, cache)
-			entry := buildEntry(cp.ID, cp.ProductID, cp.Daytime, cp.Amount, cp.Serving, product)
+			entry := buildEntry(cp.ID, cp.ProductID, cp.Daytime, cp, product)
 			mu.Lock()
 			entries = append(entries, entry)
 			mu.Unlock()
@@ -197,25 +197,26 @@ func fetchRecipeCached(recipeID string, client *api.Client, cache *sync.Map) *mo
 	return p
 }
 
-func buildEntry(consumedID, productID, mealTime string, amount float64, serving string, p *models.ProductResponse) models.DiaryEntry {
+func buildEntry(consumedID, productID, mealTime string, cp models.ConsumedProduct, p *models.ProductResponse) models.DiaryEntry {
 	e := models.DiaryEntry{
-		ConsumedID: consumedID,
-		ProductID:  productID,
-		MealTime:   mealTime,
-		Amount:     amount,
-		Serving:    serving,
-		Name:       productID, // fallback
+		ConsumedID:      consumedID,
+		ProductID:       productID,
+		MealTime:        mealTime,
+		Amount:          cp.Amount,
+		Serving:         cp.Serving,
+		ServingQuantity: cp.ServingQuantity,
+		Name:            productID, // fallback
 	}
+	amount := cp.Amount
 	if p == nil {
 		return e
 	}
 	e.Name = p.Name
-	// amount is total grams; nutrients are per 100g
-	factor := amount / 100.0
-	e.Kcal = math.Round(p.Nutrients.EnergyKcalVal()*factor*10) / 10
-	e.Protein = math.Round(p.Nutrients.Protein*factor*10) / 10
-	e.Carbs = math.Round(p.Nutrients.CarbVal()*factor*10) / 10
-	e.Fat = math.Round(p.Nutrients.Fat*factor*10) / 10
+	// amount is total grams; nutrients are per gram → multiply directly
+	e.Kcal = math.Round(p.Nutrients.EnergyKcal*amount*10) / 10
+	e.Protein = math.Round(p.Nutrients.Protein*amount*10) / 10
+	e.Carbs = math.Round(p.Nutrients.Carb*amount*10) / 10
+	e.Fat = math.Round(p.Nutrients.Fat*amount*10) / 10
 	return e
 }
 
@@ -232,9 +233,9 @@ func buildRecipeEntry(consumedID, recipeID, mealTime string, portions float64, p
 		return e
 	}
 	e.Name = p.Name
-	e.Kcal = math.Round(p.Nutrients.EnergyKcalVal()*portions*10) / 10
+	e.Kcal = math.Round(p.Nutrients.EnergyKcal*portions*10) / 10
 	e.Protein = math.Round(p.Nutrients.Protein*portions*10) / 10
-	e.Carbs = math.Round(p.Nutrients.CarbVal()*portions*10) / 10
+	e.Carbs = math.Round(p.Nutrients.Carb*portions*10) / 10
 	e.Fat = math.Round(p.Nutrients.Fat*portions*10) / 10
 	return e
 }
@@ -380,7 +381,7 @@ func (m diaryModel) View() string {
 				isSelected := globalIdx == m.selected
 
 				name := truncate(e.Name, availW/2)
-				serving := formatServing(e.Amount, e.Serving)
+				serving := formatServing(e.Amount, e.Serving, e.ServingQuantity)
 				kcalStr := fmt.Sprintf("%.0f kcal", e.Kcal)
 				macros := fmt.Sprintf("P:%.1fg C:%.1fg F:%.1fg", e.Protein, e.Carbs, e.Fat)
 
@@ -502,24 +503,21 @@ func formatDate(t time.Time) string {
 	return t.Format("Mon, Jan 2")
 }
 
-func formatServing(amount float64, servingID string) string {
-	switch servingID {
-	case "gram", "g":
-		return fmt.Sprintf("%.0fg", amount)
+func formatServing(amountGrams float64, serving string, qty float64) string {
+	switch serving {
+	case "gram", "g", "":
+		return fmt.Sprintf("%.0fg", amountGrams)
 	case "ml":
-		return fmt.Sprintf("%.0fml", amount)
-	case "portion", "serving":
-		if amount == 1 {
-			return "1 portion"
-		}
-		return fmt.Sprintf("%.1f portions", amount)
-	case "piece":
-		if amount == 1 {
-			return "1 piece"
-		}
-		return fmt.Sprintf("%.0f pieces", amount)
+		return fmt.Sprintf("%.0fml", amountGrams)
 	default:
-		return fmt.Sprintf("%.0f %s", amount, servingID)
+		// Show serving count + label (e.g. "2 cookies", "1 package")
+		if qty <= 0 {
+			qty = 1
+		}
+		if qty == 1 {
+			return fmt.Sprintf("1 %s", serving)
+		}
+		return fmt.Sprintf("%.0f %ss", qty, serving)
 	}
 }
 
