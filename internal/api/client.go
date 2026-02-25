@@ -66,26 +66,49 @@ func (c *Client) request(method, path string, body io.Reader) ([]byte, error) {
 	return data, nil
 }
 
-// Login authenticates and returns the access token.
-func (c *Client) Login(email, password string) (string, error) {
+type tokenResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// Login authenticates and returns the access token and refresh token.
+func (c *Client) Login(email, password string) (tokenResponse, error) {
 	body := fmt.Sprintf(
 		`{"client_id":%q,"client_secret":%q,"username":%q,"password":%q,"grant_type":"password"}`,
 		clientID, clientSecret, email, password,
 	)
 	data, err := c.request("POST", apiLogin, bytes.NewBufferString(body))
 	if err != nil {
-		return "", err
+		return tokenResponse{}, err
 	}
-	var resp struct {
-		AccessToken string `json:"access_token"`
-	}
+	var resp tokenResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return "", err
+		return tokenResponse{}, err
 	}
 	if resp.AccessToken == "" {
-		return "", fmt.Errorf("no access_token in response")
+		return tokenResponse{}, fmt.Errorf("no access_token in response")
 	}
-	return resp.AccessToken, nil
+	return resp, nil
+}
+
+// RefreshAccessToken exchanges a refresh token for a new access token and refresh token.
+func (c *Client) RefreshAccessToken(refreshToken string) (tokenResponse, error) {
+	body := fmt.Sprintf(
+		`{"client_id":%q,"client_secret":%q,"refresh_token":%q,"grant_type":"refresh_token"}`,
+		clientID, clientSecret, refreshToken,
+	)
+	data, err := c.request("POST", apiLogin, bytes.NewBufferString(body))
+	if err != nil {
+		return tokenResponse{}, err
+	}
+	var resp tokenResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return tokenResponse{}, err
+	}
+	if resp.AccessToken == "" {
+		return tokenResponse{}, fmt.Errorf("no access_token in response")
+	}
+	return resp, nil
 }
 
 // GetConsumedItems fetches all consumed items for a date.

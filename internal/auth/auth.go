@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 )
 
-type config struct {
-	Token string `json:"token"`
-	Email string `json:"email"`
+type Config struct {
+	Token        string `json:"token"`
+	Email        string `json:"email"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
 func configPath() (string, error) {
@@ -20,7 +21,7 @@ func configPath() (string, error) {
 	return filepath.Join(dir, "yazio-cli", "config.json"), nil
 }
 
-func SaveToken(email, token string) error {
+func SaveToken(email, accessToken, refreshToken string) error {
 	path, err := configPath()
 	if err != nil {
 		return err
@@ -28,7 +29,7 @@ func SaveToken(email, token string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(config{Token: token, Email: email})
+	data, err := json.Marshal(Config{Token: accessToken, Email: email, RefreshToken: refreshToken})
 	if err != nil {
 		return err
 	}
@@ -43,22 +44,22 @@ func LoadToken() (string, error) {
 	return cfg.Token, nil
 }
 
-// LoadConfig returns the full saved config (email + token).
-func LoadConfig() (config, error) {
+// LoadConfig returns the full saved config (email, access token, refresh token).
+func LoadConfig() (Config, error) {
 	path, err := configPath()
 	if err != nil {
-		return config{}, err
+		return Config{}, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return config{}, nil
+			return Config{}, nil
 		}
-		return config{}, err
+		return Config{}, err
 	}
-	var cfg config
+	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return config{}, err
+		return Config{}, err
 	}
 	return cfg, nil
 }

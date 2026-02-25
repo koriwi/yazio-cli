@@ -44,14 +44,14 @@ func newLoginModel() loginModel {
 func doLogin(email, password string) tea.Cmd {
 	return func() tea.Msg {
 		c := api.New("")
-		token, err := c.Login(email, password)
+		resp, err := c.Login(email, password)
 		if err != nil {
 			return loginErrMsg{err: err.Error()}
 		}
-		if err := auth.SaveToken(email, token); err != nil {
+		if err := auth.SaveToken(email, resp.AccessToken, resp.RefreshToken); err != nil {
 			return loginErrMsg{err: "saved token but failed to write config: " + err.Error()}
 		}
-		return loginSuccessMsg{token: token, email: email}
+		return loginSuccessMsg{token: resp.AccessToken, email: email}
 	}
 }
 
