@@ -416,7 +416,7 @@ func (m diaryModel) View() string {
 
 				line := fmt.Sprintf("  %s %s %s  %s",
 					padRight(name, nameW),
-					padRight(serving, servW),
+					padRight(truncate(serving, servW), servW),
 					padRight(kcalStr, 10),
 					styleDimmed.Render(macros),
 				)
