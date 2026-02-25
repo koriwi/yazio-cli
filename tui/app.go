@@ -19,6 +19,7 @@ const (
 )
 
 type profileLoadedMsg struct{ profile *models.UserProfile }
+type sessionExpiredMsg struct{}
 
 type App struct {
 	page    page
@@ -41,7 +42,7 @@ func fetchProfile(client *api.Client) tea.Cmd {
 	}
 }
 
-func New(loggedIn bool, token string) *App {
+func New(loggedIn bool, token, email, refreshToken string) *App {
 	cache := &sync.Map{}
 	var p page
 	var diary diaryModel
@@ -49,6 +50,9 @@ func New(loggedIn bool, token string) *App {
 
 	if loggedIn {
 		client = api.New(token)
+		client.SetRefresh(refreshToken, func(accessToken, newRefreshToken string) {
+			auth.SaveToken(email, accessToken, newRefreshToken)
+		})
 		diary = newDiaryModel(client, cache)
 		p = pageDiary
 	} else {
@@ -119,6 +123,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loginSuccessMsg:
 		a.token = msg.token
 		a.client = api.New(msg.token)
+		email, refreshToken := msg.email, msg.refreshToken
+		a.client.SetRefresh(refreshToken, func(accessToken, newRefreshToken string) {
+			auth.SaveToken(email, accessToken, newRefreshToken)
+		})
 		a.diary = newDiaryModel(a.client, a.cache)
 		a.diary.width, a.diary.height = a.width, a.height
 		a.diary.loading = true
@@ -153,6 +161,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.page = pageLogin
 		a.login = newLoginModel()
 		a.login.width, a.login.height = a.width, a.height
+		return a, nil
+
+	case sessionExpiredMsg:
+		auth.ClearToken()
+		a.token = ""
+		a.client = nil
+		a.profile = nil
+		a.cache = &sync.Map{}
+		a.page = pageLogin
+		a.login = newLoginModel()
+		a.login.width, a.login.height = a.width, a.height
+		a.login.err = "Session expired, please log in again"
 		return a, nil
 	}
 

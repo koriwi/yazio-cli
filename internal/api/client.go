@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,11 @@ import (
 
 	"github.com/koriwi/yazio-cli/internal/models"
 )
+
+// ErrSessionExpired is returned when the access token is invalid and the refresh token
+// exchange also fails (e.g. the refresh token has expired). Callers should redirect the
+// user to the login screen.
+var ErrSessionExpired = errors.New("session expired")
 
 const (
 	base         = "https://yzapi.yazio.com"
@@ -29,18 +35,33 @@ const (
 )
 
 type Client struct {
-	http  *http.Client
-	token string
+	http         *http.Client
+	token        string
+	refreshToken string
+	onRefresh    func(accessToken, refreshToken string)
 }
 
 func New(token string) *Client {
 	return &Client{http: &http.Client{Timeout: 15 * time.Second}, token: token}
 }
 
-func (c *Client) request(method, path string, body io.Reader) ([]byte, error) {
-	req, err := http.NewRequest(method, base+path, body)
+// SetRefresh configures the client to automatically refresh the access token on 401
+// responses. onRefresh is called with the new tokens so the caller can persist them.
+func (c *Client) SetRefresh(refreshToken string, onRefresh func(accessToken, refreshToken string)) {
+	c.refreshToken = refreshToken
+	c.onRefresh = onRefresh
+}
+
+// rawRequest executes the HTTP request and returns the body, status code, and any error.
+// It never retries — use request() for automatic 401 handling.
+func (c *Client) rawRequest(method, path string, body []byte) ([]byte, int, error) {
+	var r io.Reader
+	if body != nil {
+		r = bytes.NewBuffer(body)
+	}
+	req, err := http.NewRequest(method, base+path, r)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -51,19 +72,52 @@ func (c *Client) request(method, path string, body io.Reader) ([]byte, error) {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
+		return nil, resp.StatusCode, err
+	}
+	return data, resp.StatusCode, nil
+}
+
+// request executes the HTTP request, retrying once with a refreshed token on 401.
+func (c *Client) request(method, path string, body []byte) ([]byte, error) {
+	data, status, err := c.rawRequest(method, path, body)
+	if err != nil {
 		return nil, err
 	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(data))
+	if status == 401 && c.refreshToken != "" {
+		if refreshErr := c.doRefresh(); refreshErr != nil {
+			return nil, fmt.Errorf("HTTP 401: token refresh failed: %w", refreshErr)
+		}
+		data, status, err = c.rawRequest(method, path, body)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("HTTP %d: %s", status, string(data))
 	}
 	return data, nil
+}
+
+// doRefresh exchanges c.refreshToken for a new access token and updates the client state.
+func (c *Client) doRefresh() error {
+	resp, err := c.RefreshAccessToken(c.refreshToken)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrSessionExpired, err)
+	}
+	c.token = resp.AccessToken
+	if resp.RefreshToken != "" {
+		c.refreshToken = resp.RefreshToken
+	}
+	if c.onRefresh != nil {
+		c.onRefresh(c.token, c.refreshToken)
+	}
+	return nil
 }
 
 type tokenResponse struct {
@@ -73,13 +127,16 @@ type tokenResponse struct {
 
 // Login authenticates and returns the access token and refresh token.
 func (c *Client) Login(email, password string) (tokenResponse, error) {
-	body := fmt.Sprintf(
+	body := []byte(fmt.Sprintf(
 		`{"client_id":%q,"client_secret":%q,"username":%q,"password":%q,"grant_type":"password"}`,
 		clientID, clientSecret, email, password,
-	)
-	data, err := c.request("POST", apiLogin, bytes.NewBufferString(body))
+	))
+	data, status, err := c.rawRequest("POST", apiLogin, body)
 	if err != nil {
 		return tokenResponse{}, err
+	}
+	if status < 200 || status >= 300 {
+		return tokenResponse{}, fmt.Errorf("HTTP %d: %s", status, string(data))
 	}
 	var resp tokenResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
@@ -93,13 +150,16 @@ func (c *Client) Login(email, password string) (tokenResponse, error) {
 
 // RefreshAccessToken exchanges a refresh token for a new access token and refresh token.
 func (c *Client) RefreshAccessToken(refreshToken string) (tokenResponse, error) {
-	body := fmt.Sprintf(
+	body := []byte(fmt.Sprintf(
 		`{"client_id":%q,"client_secret":%q,"refresh_token":%q,"grant_type":"refresh_token"}`,
 		clientID, clientSecret, refreshToken,
-	)
-	data, err := c.request("POST", apiLogin, bytes.NewBufferString(body))
+	))
+	data, status, err := c.rawRequest("POST", apiLogin, body)
 	if err != nil {
 		return tokenResponse{}, err
+	}
+	if status < 200 || status >= 300 {
+		return tokenResponse{}, fmt.Errorf("HTTP %d: %s", status, string(data))
 	}
 	var resp tokenResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
@@ -263,7 +323,7 @@ func (c *Client) AddConsumedItem(req models.AddConsumedRequest) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.request("POST", apiConsumed, bytes.NewBuffer(body))
+	_, err = c.request("POST", apiConsumed, body)
 	return err
 }
 
@@ -282,7 +342,7 @@ func (c *Client) DeleteConsumedItem(consumedID string) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.request("DELETE", apiConsumed, bytes.NewBuffer(body))
+	_, err = c.request("DELETE", apiConsumed, body)
 	return err
 }
 

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -108,6 +109,9 @@ func (m diaryModel) loadDiary() tea.Cmd {
 
 		r := <-ch
 		if r.err != nil {
+			if errors.Is(r.err, api.ErrSessionExpired) {
+				return sessionExpiredMsg{}
+			}
 			return diaryLoadedMsg{err: r.err.Error()}
 		}
 
@@ -312,6 +316,9 @@ func (m diaryModel) Update(msg tea.Msg) (diaryModel, tea.Cmd) {
 					cache := m.cache
 					return m, func() tea.Msg {
 						if err := client.DeleteConsumedItem(id); err != nil {
+							if errors.Is(err, api.ErrSessionExpired) {
+								return sessionExpiredMsg{}
+							}
 							return diaryLoadedMsg{err: "delete failed: " + err.Error()}
 						}
 						tmp := diaryModel{date: date, client: client, cache: cache}

@@ -21,7 +21,11 @@ type loginModel struct {
 	height   int
 }
 
-type loginSuccessMsg struct{ token string; email string }
+type loginSuccessMsg struct {
+	token        string
+	email        string
+	refreshToken string
+}
 type loginErrMsg struct{ err string }
 
 func newLoginModel() loginModel {
@@ -51,7 +55,7 @@ func doLogin(email, password string) tea.Cmd {
 		if err := auth.SaveToken(email, resp.AccessToken, resp.RefreshToken); err != nil {
 			return loginErrMsg{err: "saved token but failed to write config: " + err.Error()}
 		}
-		return loginSuccessMsg{token: resp.AccessToken, email: email}
+		return loginSuccessMsg{token: resp.AccessToken, email: email, refreshToken: resp.RefreshToken}
 	}
 }
 

@@ -44,10 +44,10 @@ func main() {
 		return
 	}
 
-	token, _ := auth.LoadToken()
+	cfg, _ := auth.LoadConfig()
 
 	p := tea.NewProgram(
-		tui.New(token != "", token),
+		tui.New(cfg.Token != "", cfg.Token, cfg.Email, cfg.RefreshToken),
 		tea.WithAltScreen(),
 	)
 

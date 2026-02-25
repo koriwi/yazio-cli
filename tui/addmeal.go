@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -194,6 +195,9 @@ func (m addMealModel) doSearch(query string) tea.Cmd {
 	return func() tea.Msg {
 		products, err := client.SearchProducts(query, country, sex)
 		if err != nil {
+			if errors.Is(err, api.ErrSessionExpired) {
+				return sessionExpiredMsg{}
+			}
 			return searchResultsMsg{err: err.Error()}
 		}
 		return searchResultsMsg{products: products}
@@ -231,6 +235,9 @@ func (m addMealModel) doAddMeal() tea.Cmd {
 	return func() tea.Msg {
 		if editConsumedID != "" {
 			if err := client.DeleteConsumedItem(editConsumedID); err != nil {
+				if errors.Is(err, api.ErrSessionExpired) {
+					return sessionExpiredMsg{}
+				}
 				return addErrMsg{err: "delete failed: " + err.Error()}
 			}
 		}
@@ -244,6 +251,9 @@ func (m addMealModel) doAddMeal() tea.Cmd {
 			Type:            "product",
 		})
 		if err != nil {
+			if errors.Is(err, api.ErrSessionExpired) {
+				return sessionExpiredMsg{}
+			}
 			return addErrMsg{err: err.Error()}
 		}
 		return addSuccessMsg{}
