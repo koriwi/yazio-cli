@@ -64,3 +64,7 @@ yazio-cli --refresh
 ## Config
 
 Tokens are stored in `~/.config/yazio-cli/config.json` (XDG config dir).
+
+## Feature ideas
+
+- **Automatic token refresh** — on a `401` response, transparently exchange the stored refresh token for a new access token and retry the request, so the TUI never breaks after the 48-hour expiry.
