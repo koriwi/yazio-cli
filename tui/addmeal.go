@@ -40,11 +40,12 @@ type addMealModel struct {
 	height  int
 
 	// Browse state
-	recent  []models.ProductResponse
-	results []models.ProductResponse
-	listIdx int
-	loading bool
-	err     string
+	recent          []models.ProductResponse
+	results         []models.ProductResponse
+	listIdx         int
+	loading         bool
+	fetchingProduct bool
+	err             string
 
 	// Search state
 	searchInput textinput.Model
@@ -65,6 +66,11 @@ type recentLoadedMsg struct {
 type searchResultsMsg struct {
 	products []models.ProductResponse
 	err      string
+}
+
+type productFetchedMsg struct {
+	product *models.ProductResponse
+	err     string
 }
 
 type addSuccessMsg struct{}
@@ -167,6 +173,18 @@ func (m addMealModel) doSearch(query string) tea.Cmd {
 			return searchResultsMsg{err: err.Error()}
 		}
 		return searchResultsMsg{products: products}
+	}
+}
+
+func (m addMealModel) doFetchProduct(productID string) tea.Cmd {
+	client := m.client
+	cache := m.cache
+	return func() tea.Msg {
+		product := fetchProductCached(productID, client, cache)
+		if product == nil {
+			return productFetchedMsg{err: "failed to load product"}
+		}
+		return productFetchedMsg{product: product}
 	}
 }
 
@@ -281,20 +299,27 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 				list := m.currentList()
 				if m.listIdx < len(list) {
 					p := list[m.listIdx]
-					m.selected = &p
-					m.step = stepAmount
-					m.servingIdx = 0
-					m.err = ""
-					servings := productServings(&p)
-					if len(servings) > 1 {
-						// Let user pick serving unit first
-						m.servingFocused = true
-						m.amountInput.Blur()
-						m.amountInput.SetValue("1")
+					if m.tab == tabSearch {
+						// Search results only have partial data; fetch full product for servings
+						m.fetchingProduct = true
+						m.err = ""
+						cmds = append(cmds, m.doFetchProduct(p.ID))
 					} else {
-						m.servingFocused = false
-						m.amountInput.SetValue("100")
-						m.amountInput.Focus()
+						// Recent items are already fully loaded
+						m.selected = &p
+						m.step = stepAmount
+						m.servingIdx = 0
+						m.err = ""
+						servings := productServings(&p)
+						if len(servings) > 1 {
+							m.servingFocused = true
+							m.amountInput.Blur()
+							m.amountInput.SetValue("1")
+						} else {
+							m.servingFocused = false
+							m.amountInput.SetValue("100")
+							m.amountInput.Focus()
+						}
 					}
 				}
 			}
@@ -376,6 +401,28 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 			// handled by addSuccessMsg / addErrMsg
 		}
 
+	case productFetchedMsg:
+		m.fetchingProduct = false
+		if msg.err != "" {
+			m.err = msg.err
+		} else {
+			p := msg.product
+			m.selected = p
+			m.step = stepAmount
+			m.servingIdx = 0
+			m.err = ""
+			servings := productServings(p)
+			if len(servings) > 1 {
+				m.servingFocused = true
+				m.amountInput.Blur()
+				m.amountInput.SetValue("1")
+			} else {
+				m.servingFocused = false
+				m.amountInput.SetValue("100")
+				m.amountInput.Focus()
+			}
+		}
+
 	case addSuccessMsg:
 		return m, func() tea.Msg { return addedMealMsg{} }
 
@@ -416,7 +463,9 @@ func (m addMealModel) View() string {
 			sb.WriteString(styleInput.Width(m.searchInput.Width).Render(m.searchInput.View()) + "\n\n")
 		}
 
-		if m.loading {
+		if m.fetchingProduct {
+			sb.WriteString(styleDimmed.Render("  Loading product...") + "\n")
+		} else if m.loading {
 			sb.WriteString(styleDimmed.Render("  Loading...") + "\n")
 		} else if m.err != "" {
 			sb.WriteString(styleError.Render("  "+m.err) + "\n")

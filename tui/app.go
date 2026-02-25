@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/koriwi/yazio-cli/internal/api"
+	"github.com/koriwi/yazio-cli/internal/auth"
 	"github.com/koriwi/yazio-cli/internal/models"
 )
 
@@ -136,6 +137,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.diary.date = a.addMeal.date
 		a.diary.loading = true
 		return a, a.diary.loadDiary()
+
+	case logoutMsg:
+		auth.ClearToken()
+		a.token = ""
+		a.client = nil
+		a.profile = nil
+		a.cache = &sync.Map{}
+		a.page = pageLogin
+		a.login = newLoginModel()
+		a.login.width, a.login.height = a.width, a.height
+		return a, nil
 	}
 
 	// Delegate to current page

@@ -44,6 +44,8 @@ func newDiaryModel(client *api.Client, cache *sync.Map) diaryModel {
 	}
 }
 
+type logoutMsg struct{}
+
 func (m diaryModel) loadDiary() tea.Cmd {
 	date := m.date
 	client := m.client
@@ -299,6 +301,8 @@ func (m diaryModel) Update(msg tea.Msg) (diaryModel, tea.Cmd) {
 			m.loading = true
 			m.err = ""
 			return m, m.loadDiary()
+		case "L":
+			return m, func() tea.Msg { return logoutMsg{} }
 		}
 
 	case diaryLoadedMsg:
@@ -416,6 +420,7 @@ func (m diaryModel) View() string {
 		"[t] today",
 		"[r] refresh",
 		"[?] debug",
+		"[L] logout",
 		"[q] quit",
 	}
 	sb.WriteString(styleHelp.Render(strings.Join(helpItems, "  ")))

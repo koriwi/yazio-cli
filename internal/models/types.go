@@ -41,9 +41,15 @@ type ProductResponse struct {
 func (p *ProductResponse) UnmarshalJSON(data []byte) error {
 	var raw struct {
 		ID        string             `json:"id"`
+		ProductID string             `json:"product_id"` // search results use this instead of id
 		Name      string             `json:"name"`
 		Nutrients map[string]float64 `json:"nutrients"`
-		Servings  []struct {
+		// Search result flat nutrient fields (per 100g)
+		Energy        float64 `json:"energy"`
+		Carbohydrates float64 `json:"carbohydrates"`
+		Protein       float64 `json:"protein"`
+		Fat           float64 `json:"fat"`
+		Servings      []struct {
 			Amount  float64 `json:"amount"`
 			Serving string  `json:"serving"`
 		} `json:"servings"`
@@ -53,16 +59,29 @@ func (p *ProductResponse) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	p.ID = raw.ID
+	if p.ID == "" {
+		p.ID = raw.ProductID // fallback for search results
+	}
 	p.Name = raw.Name
 	p.BaseUnit = raw.BaseUnit
-	p.Nutrients = ProductNutrients{
-		EnergyKcal: raw.Nutrients["energy.energy"],
-		Carb:       raw.Nutrients["nutrient.carb"],
-		Protein:    raw.Nutrients["nutrient.protein"],
-		Fat:        raw.Nutrients["nutrient.fat"],
-		Sugar:      raw.Nutrients["nutrient.sugar"],
-		Saturated:  raw.Nutrients["nutrient.saturated"],
-		Salt:       raw.Nutrients["nutrient.salt"],
+	if len(raw.Nutrients) > 0 {
+		p.Nutrients = ProductNutrients{
+			EnergyKcal: raw.Nutrients["energy.energy"],
+			Carb:       raw.Nutrients["nutrient.carb"],
+			Protein:    raw.Nutrients["nutrient.protein"],
+			Fat:        raw.Nutrients["nutrient.fat"],
+			Sugar:      raw.Nutrients["nutrient.sugar"],
+			Saturated:  raw.Nutrients["nutrient.saturated"],
+			Salt:       raw.Nutrients["nutrient.salt"],
+		}
+	} else {
+		// Search results return flat per-100g fields; convert to per gram
+		p.Nutrients = ProductNutrients{
+			EnergyKcal: raw.Energy / 100,
+			Carb:       raw.Carbohydrates / 100,
+			Protein:    raw.Protein / 100,
+			Fat:        raw.Fat / 100,
+		}
 	}
 	for _, s := range raw.Servings {
 		p.Servings = append(p.Servings, Serving{

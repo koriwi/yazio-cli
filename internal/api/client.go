@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -208,12 +209,47 @@ func (c *Client) SearchProducts(query, country, sex string) ([]models.ProductRes
 
 // AddConsumedItem posts a new consumed item to the diary.
 func (c *Client) AddConsumedItem(req models.AddConsumedRequest) error {
-	body, err := json.Marshal(req)
+	type productEntry struct {
+		ID              string  `json:"id"`
+		ProductID       string  `json:"product_id"`
+		Date            string  `json:"date"`
+		Daytime         string  `json:"daytime"`
+		Amount          float64 `json:"amount"`
+		Serving         string  `json:"serving"`
+		ServingQuantity float64 `json:"serving_quantity"`
+	}
+	type wrapper struct {
+		Products       []productEntry `json:"products"`
+		RecipePortions []any          `json:"recipe_portions"`
+		SimpleProducts []any          `json:"simple_products"`
+	}
+	w := wrapper{
+		Products: []productEntry{{
+			ID:              newUUID(),
+			ProductID:       req.ProductID,
+			Date:            req.Date,
+			Daytime:         req.Daytime,
+			Amount:          req.Amount,
+			Serving:         req.Serving,
+			ServingQuantity: req.ServingQuantity,
+		}},
+		RecipePortions: []any{},
+		SimpleProducts: []any{},
+	}
+	body, err := json.Marshal(w)
 	if err != nil {
 		return err
 	}
 	_, err = c.request("POST", apiConsumed, bytes.NewBuffer(body))
 	return err
+}
+
+func newUUID() string {
+	b := make([]byte, 16)
+	io.ReadFull(rand.Reader, b)
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 // DeleteConsumedItem removes a consumed item by its consumed-item ID.
