@@ -127,7 +127,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Add meal transitions
 	case backToDiaryMsg:
 		a.page = pageDiary
-		return a, nil
+		a.diary.loading = true
+		return a, a.diary.loadDiary()
 
 	case addedMealMsg:
 		a.page = pageDiary

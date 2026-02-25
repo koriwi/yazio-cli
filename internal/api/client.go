@@ -243,3 +243,26 @@ func (c *Client) GetRaw(path string) (string, int, error) {
 	}
 	return string(data), resp.StatusCode, nil
 }
+
+// PostRaw sends a raw JSON POST and returns the response body regardless of status code.
+// Useful for debugging API requests.
+func (c *Client) PostRaw(path, body string) (string, int, error) {
+	req, err := http.NewRequest("POST", base+path, bytes.NewBufferString(body))
+	if err != nil {
+		return "", 0, err
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", resp.StatusCode, err
+	}
+	return string(data), resp.StatusCode, nil
+}

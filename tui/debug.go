@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -13,7 +12,7 @@ import (
 	"github.com/koriwi/yazio-cli/internal/auth"
 )
 
-type debugEndpoint struct {
+type debugProbe struct {
 	label  string
 	path   string
 	status int
@@ -21,7 +20,24 @@ type debugEndpoint struct {
 	err    string
 }
 
-type userProfile struct {
+type debugAttempt struct {
+	label    string
+	endpoint string
+	body     string
+	status   int
+	response string
+	err      string
+	found    bool // item appeared in consumed-items after POST
+	deleted  bool
+}
+
+type debugAddTest struct {
+	productID    string
+	attempts     []debugAttempt
+	postConsumed string // consumed-items snapshot after all attempts
+}
+
+type debugProfile struct {
 	UUID      string `json:"uuid"`
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
@@ -35,9 +51,9 @@ type debugModel struct {
 	email      string
 	token      string
 	configPath string
-	jwtClaims  string
-	profile    *userProfile
-	endpoints  []debugEndpoint
+	profile    *debugProfile
+	probes     []debugProbe
+	addTest    *debugAddTest
 	loading    bool
 	scrollY    int
 	width      int
@@ -45,8 +61,9 @@ type debugModel struct {
 }
 
 type debugLoadedMsg struct {
-	profile   *userProfile
-	endpoints []debugEndpoint
+	profile *debugProfile
+	probes  []debugProbe
+	addTest *debugAddTest
 }
 
 func newDebugModel(client *api.Client, token string) debugModel {
@@ -56,7 +73,6 @@ func newDebugModel(client *api.Client, token string) debugModel {
 		email:      cfg.Email,
 		token:      token,
 		configPath: auth.ConfigFilePath(),
-		jwtClaims:  decodeJWT(token),
 		loading:    true,
 	}
 }
@@ -66,64 +82,190 @@ func (m debugModel) load() tea.Cmd {
 	return func() tea.Msg {
 		today := time.Now().Format(time.DateOnly)
 
-		// Fetch profile first so we can use country/sex in search probe
-		var profile *userProfile
-		if raw, _, err2 := client.GetRaw("/v9/user"); err2 == nil {
-			var p userProfile
+		// Fetch profile first
+		var profile *debugProfile
+		if raw, _, err := client.GetRaw("/v9/user"); err == nil {
+			var p debugProfile
 			if json.Unmarshal([]byte(raw), &p) == nil {
 				profile = &p
 			}
 		}
 
-		// Fetch first product from today to probe product nutrient field names
-		productProbe := ""
-		if raw, _, err2 := client.GetRaw(fmt.Sprintf("/v9/user/consumed-items?date=%s", today)); err2 == nil {
+		// Find a product ID for the add test
+		testProductID := ""
+		if raw, _, err := client.GetRaw(fmt.Sprintf("/v9/user/consumed-items?date=%s", today)); err == nil {
 			var cr struct {
 				Products []struct {
 					ProductID string `json:"product_id"`
 				} `json:"products"`
 			}
 			if json.Unmarshal([]byte(raw), &cr) == nil && len(cr.Products) > 0 {
-				productProbe = "/v9/products/" + cr.Products[0].ProductID
+				testProductID = cr.Products[0].ProductID
 			}
 		}
-
-		country, sex := "DE", "male"
-		if profile != nil {
-			if profile.Country != "" {
+		if testProductID == "" {
+			country, sex := "DE", "male"
+			if profile != nil && profile.Country != "" {
 				country = profile.Country
 			}
-			if profile.Sex != "" {
+			if profile != nil && profile.Sex != "" {
 				sex = profile.Sex
 			}
-		}
-
-		paths := []string{
-			"/v9/user",
-			fmt.Sprintf("/v9/user/consumed-items?date=%s", today),
-			fmt.Sprintf("/v9/user/consumed-items/nutrients-daily?start=%s&end=%s", today, today),
-			fmt.Sprintf("/v9/user/goals?date=%s", today),
-		}
-		if productProbe != "" {
-			paths = append(paths, productProbe)
-		}
-		paths = append(paths, fmt.Sprintf(
-			"/v9/products/search?query=chicken&language=en&countries=%s&sex=%s", country, sex,
-		))
-
-		var results []debugEndpoint
-
-		for _, path := range paths {
-			body, status, err := client.GetRaw(path)
-			e := debugEndpoint{label: path, path: path, status: status}
-			if err != nil {
-				e.err = err.Error()
-			} else {
-				e.body = prettyJSON(body)
+			if raw, _, err := client.GetRaw(fmt.Sprintf(
+				"/v9/products/search?query=apple&language=en&countries=%s&sex=%s", country, sex,
+			)); err == nil {
+				var results []struct {
+					ID string `json:"id"`
+				}
+				if json.Unmarshal([]byte(raw), &results) == nil && len(results) > 0 {
+					testProductID = results[0].ID
+				}
 			}
-			results = append(results, e)
 		}
-		return debugLoadedMsg{profile: profile, endpoints: results}
+
+		// GET probes
+		country, sex := "DE", "male"
+		if profile != nil && profile.Country != "" {
+			country = profile.Country
+		}
+		if profile != nil && profile.Sex != "" {
+			sex = profile.Sex
+		}
+		probePaths := []struct{ label, path string }{
+			{"user profile", "/v9/user"},
+			{"consumed today", fmt.Sprintf("/v9/user/consumed-items?date=%s", today)},
+			{"nutrients today", fmt.Sprintf("/v9/user/consumed-items/nutrients-daily?start=%s&end=%s", today, today)},
+			{"goals today", fmt.Sprintf("/v9/user/goals?date=%s", today)},
+			{"search probe", fmt.Sprintf("/v9/products/search?query=apple&language=en&countries=%s&sex=%s", country, sex)},
+		}
+		if testProductID != "" {
+			probePaths = append(probePaths, struct{ label, path string }{
+				"product details", "/v9/products/" + testProductID,
+			})
+		}
+		var probes []debugProbe
+		for _, p := range probePaths {
+			body, status, err := client.GetRaw(p.path)
+			ep := debugProbe{label: p.label, path: p.path, status: status}
+			if err != nil {
+				ep.err = err.Error()
+			} else {
+				ep.body = truncateLines(prettyJSON(body), 15)
+			}
+			probes = append(probes, ep)
+		}
+
+		// Add meal test: try several request formats in sequence
+		var addTest *debugAddTest
+		if testProductID != "" {
+			at := &debugAddTest{productID: testProductID}
+
+			// Fetch product to get its actual defined servings
+			actualServing := ""
+			actualAmount := 0.0
+			if raw, _, e := client.GetRaw("/v9/products/" + testProductID); e == nil {
+				var prod struct {
+					Servings []struct {
+						Amount  float64 `json:"amount"`
+						Serving string  `json:"serving"`
+					} `json:"servings"`
+				}
+				if json.Unmarshal([]byte(raw), &prod) == nil && len(prod.Servings) > 0 {
+					actualServing = prod.Servings[0].Serving
+					actualAmount = prod.Servings[0].Amount
+				}
+			}
+
+			type attempt struct {
+				label    string
+				endpoint string
+				body     string
+			}
+
+			candidates := []attempt{
+				{"gram serving", "/v9/user/consumed-items", fmt.Sprintf(
+					`{"product_id":%q,"date":%q,"daytime":"snack","amount":100,"serving":"gram","serving_quantity":1,"type":"product"}`,
+					testProductID, today,
+				)},
+			}
+
+			// Add attempt using the product's actual defined serving (if available)
+			if actualServing != "" {
+				candidates = append(candidates, attempt{
+					label:    fmt.Sprintf("actual serving (%s)", actualServing),
+					endpoint: "/v9/user/consumed-items",
+					body: fmt.Sprintf(
+						`{"product_id":%q,"date":%q,"daytime":"snack","amount":%g,"serving":%q,"serving_quantity":1,"type":"product"}`,
+						testProductID, today, actualAmount, actualServing,
+					),
+				})
+			}
+
+			for _, c := range candidates {
+				respBody, status, err := client.PostRaw(c.endpoint, c.body)
+				a := debugAttempt{
+					label:    c.label,
+					endpoint: c.endpoint,
+					body:     prettyJSON(c.body),
+					status:   status,
+					response: prettyJSON(respBody),
+				}
+				if err != nil {
+					a.err = err.Error()
+				}
+
+				// If 2xx, check whether item was actually added
+				if status >= 200 && status < 300 {
+					createdID := ""
+					var created struct {
+						ID string `json:"id"`
+					}
+					if json.Unmarshal([]byte(respBody), &created) == nil {
+						createdID = created.ID
+					}
+					if raw, _, e := client.GetRaw(fmt.Sprintf("/v9/user/consumed-items?date=%s", today)); e == nil {
+						var cr struct {
+							Products []struct {
+								ID        string `json:"id"`
+								ProductID string `json:"product_id"`
+								Daytime   string `json:"daytime"`
+							} `json:"products"`
+						}
+						if json.Unmarshal([]byte(raw), &cr) == nil {
+							for _, p := range cr.Products {
+								if p.ProductID == testProductID && p.Daytime == "snack" {
+									if createdID == "" {
+										createdID = p.ID
+									}
+									a.found = true
+									break
+								}
+							}
+						}
+					}
+					if createdID != "" {
+						if client.DeleteConsumedItem(createdID) == nil {
+							a.deleted = true
+						}
+					}
+				}
+
+				at.attempts = append(at.attempts, a)
+
+				// Stop as soon as we find a working format
+				if a.found {
+					break
+				}
+			}
+
+			// Final consumed-items snapshot
+			if raw, _, e := client.GetRaw(fmt.Sprintf("/v9/user/consumed-items?date=%s", today)); e == nil {
+				at.postConsumed = truncateLines(prettyJSON(raw), 20)
+			}
+			addTest = at
+		}
+
+		return debugLoadedMsg{profile: profile, probes: probes, addTest: addTest}
 	}
 }
 
@@ -148,8 +290,9 @@ func (m debugModel) Update(msg tea.Msg) (debugModel, tea.Cmd) {
 
 	case debugLoadedMsg:
 		m.loading = false
-		m.endpoints = msg.endpoints
 		m.profile = msg.profile
+		m.probes = msg.probes
+		m.addTest = msg.addTest
 	}
 	return m, nil
 }
@@ -157,79 +300,127 @@ func (m debugModel) Update(msg tea.Msg) (debugModel, tea.Cmd) {
 func (m debugModel) View() string {
 	var lines []string
 
-	title := styleHeader.Render("Debug Info")
-	lines = append(lines, title, "")
+	lines = append(lines, styleHeader.Render("Debug Info"), "")
 
-	// Account section
+	// Account
 	lines = append(lines, sectionLabel("Account"))
 	lines = append(lines, row("Email", m.email))
 	if m.profile != nil {
 		lines = append(lines, row("Name", m.profile.FirstName+" "+m.profile.LastName))
 		lines = append(lines, row("UUID", m.profile.UUID))
+		lines = append(lines, row("Country / Sex", m.profile.Country+" / "+m.profile.Sex))
 	}
-	tokenPreview := ""
+	tokenPreview := m.token
 	if len(m.token) > 16 {
-		tokenPreview = m.token[:8] + "..." + m.token[len(m.token)-8:]
-	} else {
-		tokenPreview = m.token
+		tokenPreview = m.token[:8] + "…" + m.token[len(m.token)-8:]
 	}
 	lines = append(lines, row("Token", tokenPreview))
 	lines = append(lines, row("Config file", m.configPath))
 	lines = append(lines, "")
 
-	// JWT claims
-	if m.jwtClaims != "" {
-		lines = append(lines, sectionLabel("JWT Claims"))
-		for _, l := range strings.Split(m.jwtClaims, "\n") {
-			lines = append(lines, "  "+styleDimmed.Render(l))
-		}
-		lines = append(lines, "")
+	if m.loading {
+		lines = append(lines, styleDimmed.Render("  Loading…"))
+		lines = append(lines, "", styleHelp.Render("[↑/↓] scroll  [g] top  [Esc] back"))
+		return applyScroll(lines, m.scrollY, m.height)
 	}
 
-	// API probe results
-	lines = append(lines, sectionLabel("API Endpoint Probe"))
-	if m.loading {
-		lines = append(lines, styleDimmed.Render("  Probing endpoints..."))
+	// Add meal test
+	lines = append(lines, sectionLabel("Add Meal Test"))
+	if m.addTest == nil {
+		lines = append(lines, styleDimmed.Render("  No product found for test"))
 	} else {
-		for _, ep := range m.endpoints {
-			statusStr := fmt.Sprintf("HTTP %d", ep.status)
-			var statusStyle lipgloss.Style
-			if ep.err != "" || ep.status >= 400 {
+		at := m.addTest
+		lines = append(lines, row("Product ID", at.productID))
+		lines = append(lines, "")
+
+		successStyle := lipgloss.NewStyle().Foreground(colorSuccess)
+
+		for _, a := range at.attempts {
+			statusStr := fmt.Sprintf("HTTP %d", a.status)
+			statusStyle := successStyle
+			if a.err != "" || a.status >= 400 {
 				statusStyle = styleError
-			} else {
-				statusStyle = lipgloss.NewStyle().Foreground(colorSuccess)
 			}
-			lines = append(lines, fmt.Sprintf("  %s  %s",
-				styleItemName.Render(ep.label),
-				statusStyle.Render(statusStr),
+
+			// One-line summary per attempt
+			result := statusStyle.Render(statusStr)
+			if a.err != "" {
+				result += "  " + styleError.Render(a.err)
+			} else if a.found && a.deleted {
+				result += "  " + successStyle.Render("✓ item added & deleted — THIS FORMAT WORKS")
+			} else if a.found {
+				result += "  " + successStyle.Render("✓ item added (delete failed)")
+			} else if a.status >= 200 && a.status < 300 {
+				result += "  " + styleDimmed.Render("accepted but item not found in consumed-items")
+			}
+
+			lines = append(lines, fmt.Sprintf("  %s  %s  %s",
+				styleDimmed.Render(a.label),
+				styleDimmed.Render(a.endpoint),
+				result,
 			))
-			if ep.err != "" {
-				lines = append(lines, styleDimmed.Render("    "+ep.err))
-			} else if ep.body != "" {
-				for _, bl := range strings.Split(ep.body, "\n") {
-					lines = append(lines, styleDimmed.Render("    "+bl))
+
+			// Show request body only for failed/interesting attempts
+			if !a.found {
+				for _, l := range strings.Split(a.body, "\n") {
+					lines = append(lines, "    "+styleDimmed.Render(l))
+				}
+				if a.response != "" && a.response != `""` && a.response != "null" {
+					lines = append(lines, "    "+styleDimmed.Render("response: "+a.response))
 				}
 			}
 			lines = append(lines, "")
 		}
+
+		if at.postConsumed != "" {
+			lines = append(lines, styleDimmed.Render("  consumed-items after test:"))
+			for _, l := range strings.Split(at.postConsumed, "\n") {
+				lines = append(lines, "    "+styleDimmed.Render(l))
+			}
+		}
+	}
+	lines = append(lines, "")
+
+	// GET probes
+	lines = append(lines, sectionLabel("API Probes"))
+	for _, ep := range m.probes {
+		statusStr := fmt.Sprintf("HTTP %d", ep.status)
+		statusStyle := lipgloss.NewStyle().Foreground(colorSuccess)
+		if ep.err != "" || ep.status >= 400 {
+			statusStyle = styleError
+		}
+		lines = append(lines, fmt.Sprintf("  %s  %s  %s",
+			styleDimmed.Render(ep.label),
+			styleItemName.Render(ep.path),
+			statusStyle.Render(statusStr),
+		))
+		if ep.err != "" {
+			lines = append(lines, styleError.Render("    "+ep.err))
+		} else {
+			for _, l := range strings.Split(ep.body, "\n") {
+				lines = append(lines, "    "+styleDimmed.Render(l))
+			}
+		}
+		lines = append(lines, "")
 	}
 
 	lines = append(lines, styleHelp.Render("[↑/↓] scroll  [g] top  [Esc] back"))
 
-	// Apply scroll
+	return applyScroll(lines, m.scrollY, m.height)
+}
+
+func applyScroll(lines []string, scrollY, height int) string {
 	visible := lines
-	if m.height > 4 && m.scrollY > 0 {
-		if m.scrollY < len(lines) {
-			visible = lines[m.scrollY:]
+	if scrollY > 0 {
+		if scrollY < len(lines) {
+			visible = lines[scrollY:]
 		} else {
 			visible = lines[len(lines)-1:]
 		}
 	}
-	// Clip to terminal height
-	if m.height > 2 && len(visible) > m.height-1 {
-		visible = visible[:m.height-1]
+	if height > 2 && len(visible) > height-1 {
+		visible = visible[:height-1]
 	}
-
 	return strings.Join(visible, "\n")
 }
 
@@ -255,29 +446,10 @@ func prettyJSON(s string) string {
 	return string(b)
 }
 
-// decodeJWT tries to extract the payload from a JWT token.
-// Returns an empty string if the token is not a valid JWT.
-func decodeJWT(token string) string {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return ""
+func truncateLines(s string, max int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= max {
+		return s
 	}
-	// JWT uses base64url without padding
-	payload := parts[1]
-	// Add padding if needed
-	switch len(payload) % 4 {
-	case 2:
-		payload += "=="
-	case 3:
-		payload += "="
-	}
-	data, err := base64.URLEncoding.DecodeString(payload)
-	if err != nil {
-		// Try RawURLEncoding (no padding)
-		data, err = base64.RawURLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return ""
-		}
-	}
-	return prettyJSON(string(data))
+	return strings.Join(lines[:max], "\n") + fmt.Sprintf("\n  … (%d more lines)", len(lines)-max)
 }

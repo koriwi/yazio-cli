@@ -40,6 +40,7 @@ type ProductResponse struct {
 
 func (p *ProductResponse) UnmarshalJSON(data []byte) error {
 	var raw struct {
+		ID        string             `json:"id"`
 		Name      string             `json:"name"`
 		Nutrients map[string]float64 `json:"nutrients"`
 		Servings  []struct {
@@ -51,6 +52,7 @@ func (p *ProductResponse) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	p.ID = raw.ID
 	p.Name = raw.Name
 	p.BaseUnit = raw.BaseUnit
 	p.Nutrients = ProductNutrients{
@@ -132,6 +134,7 @@ type AddConsumedRequest struct {
 	Amount          float64 `json:"amount"`
 	Serving         string  `json:"serving"`
 	ServingQuantity float64 `json:"serving_quantity"`
+	Type            string  `json:"type"`
 }
 
 // DiaryEntry is a resolved consumed item with product name and nutrients

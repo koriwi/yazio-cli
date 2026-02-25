@@ -93,13 +93,13 @@ func newAddMealModel(client *api.Client, cache *sync.Map, date time.Time, profil
 	}
 }
 
-// productServings returns all available servings, always starting with gram.
+// productServings returns the servings the product defines.
+// If the product has no servings (or is nil), falls back to gram.
 func productServings(p *models.ProductResponse) []models.Serving {
-	servings := []models.Serving{{Amount: 1, Serving: "gram"}}
-	if p != nil {
-		servings = append(servings, p.Servings...)
+	if p != nil && len(p.Servings) > 0 {
+		return p.Servings
 	}
-	return servings
+	return []models.Serving{{Amount: 1, Serving: "gram"}}
 }
 
 // servingDisplayName returns a short user-facing label for a serving.
@@ -193,6 +193,7 @@ func (m addMealModel) doAddMeal() tea.Cmd {
 			Amount:          amountGrams,
 			Serving:         s.Serving,
 			ServingQuantity: qty,
+			Type:            "product",
 		})
 		if err != nil {
 			return addErrMsg{err: err.Error()}
