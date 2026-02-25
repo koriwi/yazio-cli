@@ -4,6 +4,8 @@ A terminal UI for [YAZIO](https://www.yazio.com/) built with [Bubble Tea](https:
 
 > **Note:** YAZIO has no official public API. This tool uses a reverse-engineered API that may break without notice.
 
+![screenshot](screenshot.png)
+
 ## Features
 
 - View your food diary with calorie and macro progress bars
