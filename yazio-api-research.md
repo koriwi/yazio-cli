@@ -107,7 +107,6 @@ Response shape is identical to the login response (access_token + refresh_token)
 The version prefix increments over time. Endpoint paths appear stable across versions; only the prefix changes:
 
 - v5 — old (seen in early saganos examples)
-- v5 — old (seen in early saganos examples)
 - v9 — originally used by this project (`yazio-cli`)
 - v12 — saganos swagger.json
 - v15 — current (`juriadams/yazio`, as of April 2024) — **now used by `yazio-cli`**
@@ -186,7 +185,7 @@ DELETE body (JSON array of consumed-item UUIDs — the `id` field, **not** `prod
 | ------ | ---------------------------------------------------------------------- | ----------------------------------------------------- |
 | GET    | `/user/consumed-items/nutrients-daily?start=YYYY-MM-DD&end=YYYY-MM-DD` | Daily nutrient totals for a date range                |
 | GET    | `/user/widgets/daily-summary?date=YYYY-MM-DD`                          | Full daily summary (meals, goals, steps, water, etc.) |
-| GET    | `/user/goals/unmodified?date=YYYY-MM-DD`                               | User's goals (energy, macros, water, steps, weight)   |
+| GET    | `/user/goals?date=YYYY-MM-DD`                                          | User's goals (energy, macros, water, steps, weight)   |
 
 Daily nutrient response fields: `date`, `energy`, `carb`, `protein`, `fat`, `energy_goal`
 
@@ -197,7 +196,7 @@ Goals keys (dotted notation): `energy.energy`, `nutrient.protein`, `nutrient.fat
 | Method | Path                                                                | Description            |
 | ------ | ------------------------------------------------------------------- | ---------------------- |
 | GET    | `/products/<id>`                                                    | Single product by UUID |
-| GET    | `/products/search?query=...&sex=male&countries=DE,US&locales=en_US` | Search food database   |
+| GET    | `/products/search?query=...&sex=male&countries=DE&language=en`      | Search food database   |
 
 Product schema fields: `id` (UUID), `name`, `is_verified`, `is_private`, `is_deleted`, `has_ean`, `category`, `producer` (nullable), `nutrients` (map of dotted keys per gram), `servings` (array of `{serving, amount}`), `base_unit`, `eans`, `language`, `countries`, `updated_at`
 
