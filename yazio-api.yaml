@@ -1,0 +1,664 @@
+openapi: 3.0.3
+info:
+  title: YAZIO Unofficial API
+  description: |
+    Reverse-engineered API for the YAZIO nutrition tracking app.
+    No official public API exists — endpoints may change without notice.
+
+    Authentication uses OAuth 2.0 Resource Owner Password Credentials flow
+    with hardcoded client credentials extracted from the YAZIO mobile app
+    (publicly known across all community projects).
+
+    Access tokens expire after 48 hours (`expires_in: 172800`).
+    Refresh tokens rotate on every use — always save both the new
+    `access_token` and `refresh_token` from every refresh response.
+  version: "15"
+
+servers:
+  - url: https://yzapi.yazio.com/v15
+    description: YAZIO API v15
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Authentication
+  - name: User
+  - name: Diary
+  - name: Products
+  - name: Recipes
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Access token obtained from POST /oauth/token
+
+  schemas:
+    TokenRequest:
+      type: object
+      required: [client_id, client_secret, grant_type]
+      properties:
+        client_id:
+          type: string
+          description: Hardcoded client ID from the YAZIO mobile app
+        client_secret:
+          type: string
+          description: Hardcoded client secret from the YAZIO mobile app
+        grant_type:
+          type: string
+          enum: [password, refresh_token]
+        username:
+          type: string
+          format: email
+          description: Required when grant_type is "password"
+        password:
+          type: string
+          description: Required when grant_type is "password"
+        refresh_token:
+          type: string
+          description: Required when grant_type is "refresh_token"
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds
+          example: 172800
+        token_type:
+          type: string
+          example: bearer
+
+    UserProfile:
+      type: object
+      properties:
+        uuid:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+        last_name:
+          type: string
+        country:
+          type: string
+          description: ISO 3166-1 alpha-2 country code
+          example: DE
+        sex:
+          type: string
+          enum: [male, female, other]
+        language:
+          type: string
+          example: en
+
+    ConsumedProduct:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Consumed item entry UUID (client-generated on POST)
+        product_id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        daytime:
+          type: string
+          enum: [breakfast, lunch, dinner, snack]
+        amount:
+          type: number
+          format: float
+        serving:
+          type: string
+          description: Serving unit name or "gram"
+        serving_quantity:
+          type: number
+          format: float
+        type:
+          type: string
+
+    ConsumedRecipe:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        recipe_id:
+          type: string
+          format: uuid
+        date:
+          type: string
+          format: date
+        daytime:
+          type: string
+          enum: [breakfast, lunch, dinner, snack]
+        portion_count:
+          type: number
+          format: float
+
+    ConsumedItemsResponse:
+      type: object
+      properties:
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumedProduct'
+        recipe_portions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumedRecipe'
+        simple_products:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumedProduct'
+
+    AddConsumedItemsRequest:
+      type: object
+      required: [products, recipe_portions, simple_products]
+      properties:
+        products:
+          type: array
+          items:
+            type: object
+            required: [id, product_id, date, daytime, amount, serving, serving_quantity]
+            properties:
+              id:
+                type: string
+                format: uuid
+                description: Client-generated UUID v4 for this consumed item entry
+              product_id:
+                type: string
+                format: uuid
+              date:
+                type: string
+                format: date
+              daytime:
+                type: string
+                enum: [breakfast, lunch, dinner, snack]
+              amount:
+                type: number
+                format: float
+              serving:
+                type: string
+                description: Serving unit name or "gram"
+              serving_quantity:
+                type: number
+                format: float
+        recipe_portions:
+          type: array
+          items: {}
+          description: Empty array when adding products
+        simple_products:
+          type: array
+          items: {}
+          description: Empty array when adding products
+
+    DailyNutrient:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        energy:
+          type: number
+          format: float
+          description: Total energy in kcal
+        carb:
+          type: number
+          format: float
+          description: Total carbohydrates in grams
+        protein:
+          type: number
+          format: float
+          description: Total protein in grams
+        fat:
+          type: number
+          format: float
+          description: Total fat in grams
+        energy_goal:
+          type: number
+          format: float
+          description: Daily energy goal in kcal
+
+    GoalsResponse:
+      type: object
+      description: |
+        Flat object with dotted-notation keys mapping goal type to numeric value.
+        Known keys:
+          - `energy.energy` — daily energy goal (kcal)
+          - `nutrient.carb` — carbohydrate goal (g)
+          - `nutrient.protein` — protein goal (g)
+          - `nutrient.fat` — fat goal (g)
+          - `activity.step` — step goal
+          - `bodyvalue.weight` — target weight (kg)
+          - `water` — water goal (ml)
+      additionalProperties:
+        type: number
+        format: float
+      example:
+        "energy.energy": 2000
+        "nutrient.carb": 250
+        "nutrient.protein": 150
+        "nutrient.fat": 65
+        "water": 2000
+
+    Serving:
+      type: object
+      properties:
+        amount:
+          type: number
+          format: float
+          description: Weight of one serving in grams
+        serving:
+          type: string
+          description: Serving name (e.g., "cookie", "package", "gram")
+
+    ProductDetail:
+      type: object
+      description: Full product details returned by GET /products/{id}
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        is_verified:
+          type: boolean
+        is_private:
+          type: boolean
+        is_deleted:
+          type: boolean
+        has_ean:
+          type: boolean
+        category:
+          type: string
+        producer:
+          type: string
+          nullable: true
+        nutrients:
+          type: object
+          description: |
+            Per-gram nutrient values with dotted-notation keys. Known keys:
+              - `energy.energy` (kcal/g)
+              - `nutrient.carb` (g/g)
+              - `nutrient.protein` (g/g)
+              - `nutrient.fat` (g/g)
+              - `nutrient.sugar` (g/g)
+              - `nutrient.saturated` (g/g)
+              - `nutrient.salt` (g/g)
+          additionalProperties:
+            type: number
+            format: float
+        servings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Serving'
+        base_unit:
+          type: string
+        eans:
+          type: array
+          items:
+            type: string
+        language:
+          type: string
+        countries:
+          type: array
+          items:
+            type: string
+        updated_at:
+          type: string
+          format: date-time
+
+    ProductSearchItem:
+      type: object
+      description: Product entry as returned by search (flat per-100g nutrient fields)
+      properties:
+        product_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        score:
+          type: number
+          format: float
+        serving:
+          type: string
+        producer:
+          type: string
+          nullable: true
+        energy:
+          type: number
+          format: float
+          description: Energy in kcal per 100g
+        carbohydrates:
+          type: number
+          format: float
+          description: Carbohydrates in g per 100g
+        protein:
+          type: number
+          format: float
+          description: Protein in g per 100g
+        fat:
+          type: number
+          format: float
+          description: Fat in g per 100g
+        countries:
+          type: array
+          items:
+            type: string
+        language:
+          type: string
+        is_verified:
+          type: boolean
+
+    ProductSearchResponse:
+      type: object
+      description: |
+        The API may return either this object or a bare array of ProductSearchItem.
+        Clients should handle both shapes.
+      properties:
+        products:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductSearchItem'
+
+paths:
+  /oauth/token:
+    post:
+      summary: Obtain or refresh an access token
+      description: |
+        OAuth 2.0 token endpoint supporting two grant types:
+
+        - **`password`** — log in with email and password.
+        - **`refresh_token`** — exchange a refresh token for a new token pair.
+
+        The refresh token **rotates** on every call. Save both `access_token`
+        and `refresh_token` from the response every time.
+      security: []
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+            examples:
+              password:
+                summary: Login with credentials
+                value:
+                  client_id: "<client_id>"
+                  client_secret: "<client_secret>"
+                  username: "user@example.com"
+                  password: "yourpassword"
+                  grant_type: "password"
+              refresh:
+                summary: Refresh access token
+                value:
+                  client_id: "<client_id>"
+                  client_secret: "<client_secret>"
+                  refresh_token: "<refresh_token>"
+                  grant_type: "refresh_token"
+      responses:
+        '200':
+          description: Token issued successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid credentials or expired refresh token
+
+  /user:
+    get:
+      summary: Get authenticated user profile
+      tags: [User]
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized
+
+  /user/goals:
+    get:
+      summary: Get user goals for a date
+      description: |
+        Returns a flat object with dotted-notation keys. The Go client extracts:
+        `energy.energy`, `nutrient.carb`, `nutrient.protein`, `nutrient.fat`, `water`.
+      tags: [User]
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2024-01-15"
+      responses:
+        '200':
+          description: Goals map
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GoalsResponse'
+        '401':
+          description: Unauthorized
+
+  /user/consumed-items:
+    get:
+      summary: Get consumed items for a date
+      tags: [Diary]
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2024-01-15"
+      responses:
+        '200':
+          description: All consumed items for the day
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumedItemsResponse'
+        '401':
+          description: Unauthorized
+
+    post:
+      summary: Add items to the food diary
+      description: |
+        The `id` in each product entry is a **client-generated UUID v4** that
+        identifies this consumed item entry (not the product itself).
+      tags: [Diary]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddConsumedItemsRequest'
+            example:
+              products:
+                - id: "550e8400-e29b-41d4-a716-446655440000"
+                  product_id: "a87ff679-a2f3-471d-8b57-d0801f4e2888"
+                  date: "2024-01-15"
+                  daytime: "breakfast"
+                  amount: 100.0
+                  serving: "gram"
+                  serving_quantity: 1.0
+              recipe_portions: []
+              simple_products: []
+      responses:
+        '200':
+          description: Items added successfully
+        '401':
+          description: Unauthorized
+
+    delete:
+      summary: Delete consumed items
+      description: |
+        Removes consumed items by their consumed-item `id` values (not `product_id`).
+
+        **Note:** `DELETE /user/consumed-items/{id}` with the ID in the path
+        returns HTTP 405. The correct form is a DELETE to the base path with
+        IDs as a JSON array body.
+      tags: [Diary]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: Array of consumed-item UUIDs to delete
+            example: ["550e8400-e29b-41d4-a716-446655440000"]
+      responses:
+        '200':
+          description: Items deleted successfully
+        '401':
+          description: Unauthorized
+
+  /user/consumed-items/nutrients-daily:
+    get:
+      summary: Get daily nutrient totals for a date range
+      description: |
+        Returns one entry per day. To query a single day, set `start` and `end`
+        to the same date. Returns an empty array if no items were logged.
+      tags: [Diary]
+      parameters:
+        - name: start
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2024-01-15"
+        - name: end
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2024-01-15"
+      responses:
+        '200':
+          description: Array of daily nutrient totals (one entry per day)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DailyNutrient'
+        '401':
+          description: Unauthorized
+
+  /products/{productId}:
+    get:
+      summary: Get product details by ID
+      tags: [Products]
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Full product details with per-gram nutrient map
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Product not found
+
+  /products/search:
+    get:
+      summary: Search the food database
+      description: |
+        Returns search results with flat per-100g nutrient fields (not the
+        per-gram `nutrients` map used by product detail). The `product_id` field
+        is used instead of `id` in search results.
+
+        The response may be a bare JSON array or an object with a `products` key.
+      tags: [Products]
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "banana"
+        - name: language
+          in: query
+          required: true
+          schema:
+            type: string
+            default: en
+          example: "en"
+        - name: countries
+          in: query
+          required: true
+          schema:
+            type: string
+          description: ISO 3166-1 alpha-2 country code
+          example: "DE"
+        - name: sex
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [male, female]
+          description: Used for nutrient reference values
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductSearchResponse'
+        '401':
+          description: Unauthorized
+
+  /recipes/{recipeId}:
+    get:
+      summary: Get recipe details by ID
+      description: Returns the same schema as a product detail response.
+      tags: [Recipes]
+      parameters:
+        - name: recipeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Recipe details with per-gram nutrient map
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetail'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Recipe not found
