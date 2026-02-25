@@ -75,9 +75,12 @@ Response:
 }
 ```
 
-Access token expires in **48 hours**. All subsequent requests use `Authorization: Bearer <access_token>`.
+Access token expires in **48 hours** (`expires_in: 172800`). All subsequent requests use `Authorization: Bearer <access_token>`.
 
 ### Token Refresh
+
+**Confirmed working.** POST to the same `/oauth/token` endpoint:
+
 ```json
 {
   "client_id": "...",
@@ -86,6 +89,8 @@ Access token expires in **48 hours**. All subsequent requests use `Authorization
   "refresh_token": "<refresh_token>"
 }
 ```
+
+Response shape is identical to the login response (access_token + refresh_token). The refresh token **rotates** — the server returns a new `access_token` and a new `refresh_token` on every call. Always save both. The refresh token lifetime is unknown; treat it as long-lived.
 
 ---
 
@@ -223,3 +228,5 @@ Response fields: `id` (UUID), `date`, `value` (nullable number), `external_id` (
 ## Notes for yazio-cli
 
 This project uses **v15** (`https://yzapi.yazio.com/v15/`), bumped from v9 after confirming v9 does not support `DELETE /user/consumed-items`. The `juriadams/yazio` TS client also uses v15. Endpoint paths are stable across versions; only the prefix changes.
+
+The access token expires after 48 hours. `yazio-cli --refresh` exchanges the stored refresh token for a new access token without opening the TUI — suitable for a cron job. The refresh token is persisted in the config file alongside the access token; no password is stored.
