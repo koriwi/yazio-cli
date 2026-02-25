@@ -56,6 +56,11 @@ type addMealModel struct {
 	servingIdx     int  // index into productServings(selected)
 	servingFocused bool // true when serving selector has focus
 	mealTimeIdx    int  // index into models.MealTimes
+
+	// Edit mode (non-empty = editing an existing consumed item)
+	editConsumedID string
+	editServing    string  // original serving name, for pre-selecting serving index
+	editServingQty float64 // original quantity, for pre-filling amount input
 }
 
 type recentLoadedMsg struct {
@@ -97,6 +102,25 @@ func newAddMealModel(client *api.Client, cache *sync.Map, date time.Time, profil
 		amountInput: amount,
 		mealTimeIdx: 0,
 	}
+}
+
+func newEditMealModel(client *api.Client, cache *sync.Map, date time.Time, profile *models.UserProfile, entry models.DiaryEntry) addMealModel {
+	m := newAddMealModel(client, cache, date, profile)
+	m.editConsumedID = entry.ConsumedID
+	m.editServing = entry.Serving
+	qty := entry.ServingQuantity
+	if qty <= 0 {
+		qty = entry.Amount
+	}
+	m.editServingQty = qty
+	for i, mt := range models.MealTimes {
+		if mt == entry.MealTime {
+			m.mealTimeIdx = i
+			break
+		}
+	}
+	m.fetchingProduct = true
+	return m
 }
 
 // productServings returns the servings the product defines.
@@ -202,8 +226,14 @@ func (m addMealModel) doAddMeal() tea.Cmd {
 	mealTime := models.MealTimes[m.mealTimeIdx]
 	client := m.client
 	date := m.date
+	editConsumedID := m.editConsumedID
 
 	return func() tea.Msg {
+		if editConsumedID != "" {
+			if err := client.DeleteConsumedItem(editConsumedID); err != nil {
+				return addErrMsg{err: "delete failed: " + err.Error()}
+			}
+		}
 		err := client.AddConsumedItem(models.AddConsumedRequest{
 			ProductID:       product.ID,
 			Date:            date.Format(time.DateOnly),
@@ -329,6 +359,9 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 			if m.servingFocused {
 				switch msg.String() {
 				case "esc":
+					if m.editConsumedID != "" {
+						return m, func() tea.Msg { return backToDiaryMsg{} }
+					}
 					m.step = stepBrowse
 					m.selected = nil
 					m.amountInput.Blur()
@@ -355,6 +388,8 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 					if len(servings) > 1 {
 						m.servingFocused = true
 						m.amountInput.Blur()
+					} else if m.editConsumedID != "" {
+						return m, func() tea.Msg { return backToDiaryMsg{} }
 					} else {
 						m.step = stepBrowse
 						m.selected = nil
@@ -412,7 +447,18 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 			m.servingIdx = 0
 			m.err = ""
 			servings := productServings(p)
-			if len(servings) > 1 {
+			if m.editConsumedID != "" {
+				// Edit mode: pre-select serving and pre-fill amount
+				for i, s := range servings {
+					if s.Serving == m.editServing {
+						m.servingIdx = i
+						break
+					}
+				}
+				m.amountInput.SetValue(strconv.FormatFloat(m.editServingQty, 'f', -1, 64))
+				m.servingFocused = false
+				m.amountInput.Focus()
+			} else if len(servings) > 1 {
 				m.servingFocused = true
 				m.amountInput.Blur()
 				m.amountInput.SetValue("1")
@@ -445,10 +491,18 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 func (m addMealModel) View() string {
 	var sb strings.Builder
 
-	sb.WriteString(styleHeader.Render("Add Meal") + "\n")
+	header := "Add Meal"
+	if m.editConsumedID != "" {
+		header = "Edit Meal"
+	}
+	sb.WriteString(styleHeader.Render(header) + "\n")
 
 	switch m.step {
 	case stepBrowse:
+		if m.editConsumedID != "" {
+			sb.WriteString(styleDimmed.Render("  Loading product...") + "\n")
+			break
+		}
 		tabs := []string{"Recent", "Search"}
 		for i, t := range tabs {
 			if addMealTab(i) == m.tab {

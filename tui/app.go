@@ -138,6 +138,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.diary.loading = true
 		return a, a.diary.loadDiary()
 
+	case editEntryMsg:
+		a.addMeal = newEditMealModel(a.client, a.cache, a.diary.date, a.profile, msg.entry)
+		a.addMeal.width, a.addMeal.height = a.width, a.height
+		a.page = pageAddMeal
+		return a, a.addMeal.doFetchProduct(msg.entry.ProductID)
+
 	case logoutMsg:
 		auth.ClearToken()
 		a.token = ""

@@ -45,6 +45,7 @@ func newDiaryModel(client *api.Client, cache *sync.Map) diaryModel {
 }
 
 type logoutMsg struct{}
+type editEntryMsg struct{ entry models.DiaryEntry }
 
 func (m diaryModel) loadDiary() tea.Cmd {
 	date := m.date
@@ -293,6 +294,13 @@ func (m diaryModel) Update(msg tea.Msg) (diaryModel, tea.Cmd) {
 			if m.selected > 0 {
 				m.selected--
 			}
+		case "e":
+			if len(m.entries) > 0 {
+				entry := m.entries[m.selected]
+				if entry.ConsumedID != "" {
+					return m, func() tea.Msg { return editEntryMsg{entry: entry} }
+				}
+			}
 		case "d":
 			if len(m.entries) > 0 {
 				entry := m.entries[m.selected]
@@ -430,6 +438,7 @@ func (m diaryModel) View() string {
 		"[←/→] date",
 		"[↑/↓] select",
 		"[a] add",
+		"[e] edit",
 		"[d] delete",
 		"[t] today",
 		"[r] refresh",
