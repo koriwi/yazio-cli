@@ -93,9 +93,10 @@ Access token expires in **48 hours**. All subsequent requests use `Authorization
 
 The version prefix increments over time. Endpoint paths appear stable across versions; only the prefix changes:
 - v5 — old (seen in early saganos examples)
-- v9 — used by this project (`yazio-cli`)
+- v5 — old (seen in early saganos examples)
+- v9 — originally used by this project (`yazio-cli`)
 - v12 — saganos swagger.json
-- v15 — current (`juriadams/yazio`, as of April 2024)
+- v15 — current (`juriadams/yazio`, as of April 2024) — **now used by `yazio-cli`**
 
 Base URL pattern: `https://yzapi.yazio.com/v{N}/`
 
@@ -116,8 +117,8 @@ User schema fields: `uuid`, `email`, `first_name`, `last_name`, `sex` (male/fema
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/user/consumed-items?date=YYYY-MM-DD` | All consumed items for a day |
-| POST | `/user/consumed-items` | Add a food entry to diary |
-| DELETE | `/user/consumed-items/<id>` | Remove a specific consumed item |
+| POST | `/user/consumed-items` | Add food entries to diary |
+| DELETE | `/user/consumed-items` | Remove consumed items (IDs in request body) |
 
 GET response shape:
 ```json
@@ -129,6 +130,8 @@ GET response shape:
 ```
 
 ConsumedProduct fields: `id` (UUID), `product_id` (UUID), `date`, `daytime` (breakfast/lunch/dinner/snack), `amount`, `serving`, `serving_quantity`, `type`
+
+> **Note:** Search results use `product_id` (not `id`) and flat per-100g nutrient fields (`energy`, `carbohydrates`, `protein`, `fat`) instead of the `nutrients` map.
 
 POST body:
 ```json
@@ -146,6 +149,15 @@ POST body:
   }]
 }
 ```
+
+The `id` in the POST body is a client-generated UUID v4 for the new consumed item entry.
+
+DELETE body (JSON array of consumed-item UUIDs — the `id` field, **not** `product_id`):
+```json
+["<consumed-item-uuid>"]
+```
+
+> **Note:** `DELETE /user/consumed-items/<id>` (ID in path) returns HTTP 405. The correct form is DELETE to the base path with the ID(s) in the request body. Confirmed against `juriadams/yazio` v15 implementation. The `saganos/yazio_public_api` swagger.json (v5-era) has no DELETE endpoint at all — deletion may not have existed before v12/v15.
 
 ### Nutrients & Summary
 | Method | Path | Description |
@@ -210,4 +222,4 @@ Response fields: `id` (UUID), `date`, `value` (nullable number), `external_id` (
 
 ## Notes for yazio-cli
 
-This project uses **v9** (`https://yzapi.yazio.com/v9/`). The `juriadams/yazio` TS client uses **v15** as of April 2024. The version suffix increments frequently — endpoint paths appear stable across versions, only the prefix changes. Worth testing whether v9 calls still work or need bumping.
+This project uses **v15** (`https://yzapi.yazio.com/v15/`), bumped from v9 after confirming v9 does not support `DELETE /user/consumed-items`. The `juriadams/yazio` TS client also uses v15. Endpoint paths are stable across versions; only the prefix changes.

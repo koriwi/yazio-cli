@@ -156,6 +156,19 @@ func resolveEntries(consumed *models.ConsumedItemsResponse, client *api.Client, 
 		}()
 	}
 
+	for _, cp := range consumed.SimpleProducts {
+		cp := cp
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			product := fetchProductCached(cp.ProductID, client, cache)
+			entry := buildEntry(cp.ID, cp.ProductID, cp.Daytime, cp, product)
+			mu.Lock()
+			entries = append(entries, entry)
+			mu.Unlock()
+		}()
+	}
+
 	wg.Wait()
 
 	// Sort by meal time order
@@ -290,8 +303,9 @@ func (m diaryModel) Update(msg tea.Msg) (diaryModel, tea.Cmd) {
 					date := m.date
 					cache := m.cache
 					return m, func() tea.Msg {
-						_ = client.DeleteConsumedItem(id)
-						// Reload diary after deletion
+						if err := client.DeleteConsumedItem(id); err != nil {
+							return diaryLoadedMsg{err: "delete failed: " + err.Error()}
+						}
 						tmp := diaryModel{date: date, client: client, cache: cache}
 						return tmp.loadDiary()()
 					}

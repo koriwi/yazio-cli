@@ -15,14 +15,14 @@ import (
 
 const (
 	base         = "https://yzapi.yazio.com"
-	apiLogin     = "/v9/oauth/token"
-	apiConsumed  = "/v9/user/consumed-items"
-	apiNutrDaily = "/v9/user/consumed-items/nutrients-daily"
-	apiProducts  = "/v9/products"
-	apiGoals     = "/v9/user/goals"
-	apiExercises = "/v9/user/exercises"
-	apiWater     = "/v9/user/water-intake"
-	apiRecipes   = "/v9/recipes"
+	apiLogin     = "/v15/oauth/token"
+	apiConsumed  = "/v15/user/consumed-items"
+	apiNutrDaily = "/v15/user/consumed-items/nutrients-daily"
+	apiProducts  = "/v15/products"
+	apiGoals     = "/v15/user/goals"
+	apiExercises = "/v15/user/exercises"
+	apiWater     = "/v15/user/water-intake"
+	apiRecipes   = "/v15/recipes"
 
 	clientID     = "1_4hiybetvfksgw40o0sog4s884kwc840wwso8go4k8c04goo4c"
 	clientSecret = "6rok2m65xuskgkgogw40wkkk8sw0osg84s8cggsc4woos4s8o"
@@ -171,7 +171,7 @@ func (c *Client) GetRecipe(recipeID string) (*models.ProductResponse, error) {
 
 // GetProfile fetches the authenticated user's profile.
 func (c *Client) GetProfile() (*models.UserProfile, error) {
-	data, err := c.request("GET", "/v9/user", nil)
+	data, err := c.request("GET", "/v15/user", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -253,8 +253,13 @@ func newUUID() string {
 }
 
 // DeleteConsumedItem removes a consumed item by its consumed-item ID.
+// The API expects a DELETE to /user/consumed-items with the ID as a JSON array body.
 func (c *Client) DeleteConsumedItem(consumedID string) error {
-	_, err := c.request("DELETE", apiConsumed+"/"+consumedID, nil)
+	body, err := json.Marshal([]string{consumedID})
+	if err != nil {
+		return err
+	}
+	_, err = c.request("DELETE", apiConsumed, bytes.NewBuffer(body))
 	return err
 }
 
