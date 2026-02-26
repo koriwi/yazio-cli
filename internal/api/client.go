@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/koriwi/yazio-cli/internal/models"
@@ -30,9 +31,23 @@ const (
 	apiWater     = "/v15/user/water-intake"
 	apiRecipes   = "/v15/recipes"
 
-	clientID     = "1_4hiybetvfksgw40o0sog4s884kwc840wwso8go4k8c04goo4c"
-	clientSecret = "6rok2m65xuskgkgogw40wkkk8sw0osg84s8cggsc4woos4s8o"
+	defaultClientID     = "1_4hiybetvfksgw40o0sog4s884kwc840wwso8go4k8c04goo4c"
+	defaultClientSecret = "6rok2m65xuskgkgogw40wkkk8sw0osg84s8cggsc4woos4s8o"
 )
+
+func getClientID() string {
+	if v := os.Getenv("YAZIO_CLIENT_ID"); v != "" {
+		return v
+	}
+	return defaultClientID
+}
+
+func getClientSecret() string {
+	if v := os.Getenv("YAZIO_CLIENT_SECRET"); v != "" {
+		return v
+	}
+	return defaultClientSecret
+}
 
 type Client struct {
 	http         *http.Client
@@ -129,7 +144,7 @@ type tokenResponse struct {
 func (c *Client) Login(email, password string) (tokenResponse, error) {
 	body := []byte(fmt.Sprintf(
 		`{"client_id":%q,"client_secret":%q,"username":%q,"password":%q,"grant_type":"password"}`,
-		clientID, clientSecret, email, password,
+		getClientID(), getClientSecret(), email, password,
 	))
 	data, status, err := c.rawRequest("POST", apiLogin, body)
 	if err != nil {
@@ -152,7 +167,7 @@ func (c *Client) Login(email, password string) (tokenResponse, error) {
 func (c *Client) RefreshAccessToken(refreshToken string) (tokenResponse, error) {
 	body := []byte(fmt.Sprintf(
 		`{"client_id":%q,"client_secret":%q,"refresh_token":%q,"grant_type":"refresh_token"}`,
-		clientID, clientSecret, refreshToken,
+		getClientID(), getClientSecret(), refreshToken,
 	))
 	data, status, err := c.rawRequest("POST", apiLogin, body)
 	if err != nil {

@@ -53,8 +53,8 @@ YAZIO has no official public API. All integrations documented here are community
 OAuth 2.0 Resource Owner Password Credentials flow with hardcoded client credentials extracted from the YAZIO mobile app (publicly known across all projects):
 
 ```
-client_id:     1_4hiybetvfksgw40o0sog4sxxxxwc840wwso8go4k8c04goo4c
-client_secret: 6rok2m65xuskgkgogw40wkkkxxxxosg84s8cggsc4woos4s8o
+client_id:     1_4hiybetvfksgw40o0sog4s884kwc840wwso8go4k8c04goo4c
+client_secret: 6rok2m65xuskgkgogw40wkkk8sw0osg84s8cggsc4woos4s8o
 ```
 
 ### Login
@@ -193,10 +193,10 @@ Goals keys (dotted notation): `energy.energy`, `nutrient.protein`, `nutrient.fat
 
 ### Products / Food Database
 
-| Method | Path                                                                | Description            |
-| ------ | ------------------------------------------------------------------- | ---------------------- |
-| GET    | `/products/<id>`                                                    | Single product by UUID |
-| GET    | `/products/search?query=...&sex=male&countries=DE&language=en`      | Search food database   |
+| Method | Path                                                           | Description            |
+| ------ | -------------------------------------------------------------- | ---------------------- |
+| GET    | `/products/<id>`                                               | Single product by UUID |
+| GET    | `/products/search?query=...&sex=male&countries=DE&language=en` | Search food database   |
 
 Product schema fields: `id` (UUID), `name`, `is_verified`, `is_private`, `is_deleted`, `has_ean`, `category`, `producer` (nullable), `nutrients` (map of dotted keys per gram), `servings` (array of `{serving, amount}`), `base_unit`, `eans`, `language`, `countries`, `updated_at`
 
