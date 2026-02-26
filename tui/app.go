@@ -100,10 +100,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Debug page
 		if a.page == pageDiary && msg.String() == "?" {
-			a.debug = newDebugModel(a.client, a.token)
+			a.debug = newDebugModel(a.token)
 			a.debug.width, a.debug.height = a.width, a.height
 			a.page = pageDebug
-			return a, a.debug.load()
+			return a, nil
 		}
 
 		// Page-specific add key
