@@ -124,13 +124,25 @@ func newEditMealModel(client *api.Client, cache *sync.Map, date time.Time, profi
 	return m
 }
 
-// productServings returns the servings the product defines.
-// If the product has no servings (or is nil), falls back to gram.
+// productServings returns the servings the product defines, always including gram.
 func productServings(p *models.ProductResponse) []models.Serving {
-	if p != nil && len(p.Servings) > 0 {
-		return p.Servings
+	if p == nil || len(p.Servings) == 0 {
+		return []models.Serving{{Amount: 1, Serving: "gram"}}
 	}
-	return []models.Serving{{Amount: 1, Serving: "gram"}}
+	for _, s := range p.Servings {
+		if s.Serving == "gram" {
+			return p.Servings
+		}
+	}
+	return append(p.Servings, models.Serving{Amount: 1, Serving: "gram"})
+}
+
+// defaultAmountForServing returns the default quantity string for a serving.
+func defaultAmountForServing(s models.Serving) string {
+	if s.Serving == "gram" {
+		return "100"
+	}
+	return "1"
 }
 
 // servingDisplayName returns a short user-facing label for a serving.
@@ -354,10 +366,10 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 						if len(servings) > 1 {
 							m.servingFocused = true
 							m.amountInput.Blur()
-							m.amountInput.SetValue("1")
+							m.amountInput.SetValue(defaultAmountForServing(servings[0]))
 						} else {
 							m.servingFocused = false
-							m.amountInput.SetValue("100")
+							m.amountInput.SetValue(defaultAmountForServing(servings[0]))
 							m.amountInput.Focus()
 						}
 					}
@@ -386,11 +398,7 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 				case "tab", "down", "enter":
 					m.servingFocused = false
 					m.amountInput.Focus()
-					if m.servingIdx == 0 {
-						m.amountInput.SetValue("100")
-					} else {
-						m.amountInput.SetValue("1")
-					}
+					m.amountInput.SetValue(defaultAmountForServing(servings[m.servingIdx]))
 				}
 			} else {
 				switch msg.String() {
@@ -471,10 +479,10 @@ func (m addMealModel) Update(msg tea.Msg) (addMealModel, tea.Cmd) {
 			} else if len(servings) > 1 {
 				m.servingFocused = true
 				m.amountInput.Blur()
-				m.amountInput.SetValue("1")
+				m.amountInput.SetValue(defaultAmountForServing(servings[0]))
 			} else {
 				m.servingFocused = false
-				m.amountInput.SetValue("100")
+				m.amountInput.SetValue(defaultAmountForServing(servings[0]))
 				m.amountInput.Focus()
 			}
 		}
